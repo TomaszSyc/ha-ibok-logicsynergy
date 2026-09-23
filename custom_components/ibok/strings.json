@@ -48,15 +48,15 @@
         "name": "Last invoice"
       },
       "last_reading": {
-        "name": "Meter {serial} reading"
+        "name": "Reading"
       },
       "last_consumption": {
-        "name": "Meter {serial} consumption"
+        "name": "Consumption"
       }
     },
     "button": {
       "submit_reading": {
-        "name": "Submit reading for meter {serial}"
+        "name": "Submit reading"
       }
     }
   },

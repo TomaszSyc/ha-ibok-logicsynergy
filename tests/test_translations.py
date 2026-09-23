@@ -32,3 +32,27 @@ def test_translations_match_strings() -> None:
 
 def test_polish_translation_exists() -> None:
     assert (ROOT / "translations" / "pl.json").is_file()
+
+
+def test_entity_names_have_no_unfilled_placeholders() -> None:
+    """A `{placeholder}` in an entity name needs translation_placeholders.
+
+    Without them Home Assistant renders the braces literally, so the entity
+    shows up as "Wodomierz {serial} - stan". Nothing logs a warning.
+    """
+    sources = "\n".join(path.read_text(encoding="utf-8") for path in ROOT.glob("*.py"))
+    declared = "translation_placeholders" in sources
+
+    for path in [
+        ROOT / "strings.json",
+        *sorted((ROOT / "translations").glob("*.json")),
+    ]:
+        entity = json.loads(path.read_text(encoding="utf-8")).get("entity", {})
+        for platform, keys in entity.items():
+            for key, fields in keys.items():
+                name = fields.get("name", "")
+                if "{" in name and not declared:
+                    raise AssertionError(
+                        f"{path.name}: {platform}/{key} name {name!r} has a "
+                        "placeholder but no entity sets translation_placeholders"
+                    )

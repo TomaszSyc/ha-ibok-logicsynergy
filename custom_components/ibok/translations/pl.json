@@ -48,15 +48,15 @@
         "name": "Ostatnia faktura"
       },
       "last_reading": {
-        "name": "Wodomierz {serial} — stan"
+        "name": "Stan"
       },
       "last_consumption": {
-        "name": "Wodomierz {serial} — zużycie"
+        "name": "Zużycie"
       }
     },
     "button": {
       "submit_reading": {
-        "name": "Podaj odczyt wodomierza {serial}"
+        "name": "Podaj odczyt"
       }
     }
   },
