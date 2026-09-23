@@ -30,11 +30,12 @@
   "options": {
     "step": {
       "init": {
+        "description": "Pola `source_entity_...` przyjmują encję, która trzyma stan danego wodomierza; liczba w nazwie pola to jego numer fabryczny. Wskazanie encji włącza dla tego wodomierza przycisk podania odczytu.",
         "data": {
           "scan_interval": "Częstotliwość odpytywania"
         },
         "data_description": {
-          "scan_interval": "Odczyty i faktury zmieniają się najwyżej raz dziennie — długi odstęp w zupełności wystarcza i nie obciąża serwera przedsiębiorstwa. Pola source_entity_<numer> są opcjonalne: wskaż encję tylko przy tym wodomierzu, dla którego ją masz, a pojawi się dla niego przycisk."
+          "scan_interval": "Odczyty i faktury zmieniają się najwyżej raz dziennie."
         }
       }
     }

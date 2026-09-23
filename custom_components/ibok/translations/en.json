@@ -30,11 +30,12 @@
   "options": {
     "step": {
       "init": {
+        "description": "Each `source_entity_...` field takes the entity that already holds that meter's reading; the number in the field name is the meter's serial. Setting one enables the submit button for that meter.",
         "data": {
           "scan_interval": "Polling interval"
         },
         "data_description": {
-          "scan_interval": "Readings and invoices change at most once a day; a long interval is enough and keeps load off the operator's server. Fields named source_entity_<serial> are optional: set one only where some entity already holds that meter's reading, and a button appears for it."
+          "scan_interval": "Readings and invoices change at most once a day."
         }
       }
     }

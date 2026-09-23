@@ -59,3 +59,28 @@ def test_entity_names_have_no_unfilled_placeholders() -> None:
                         f"{path.name}: {platform}/{key} name {name!r} has a "
                         "placeholder but no entity sets translation_placeholders"
                     )
+
+
+def _strings(obj):
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for value in obj.values():
+            yield from _strings(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from _strings(value)
+
+
+def test_no_angle_brackets_in_translations() -> None:
+    """The frontend renders these as markdown, where `<name>` is an open tag.
+
+    A placeholder written that way does not show up as text: the field renders
+    "Translation error: UNCLOSED_TAG" instead of its description.
+    """
+    for path in [
+        ROOT / "strings.json",
+        *sorted((ROOT / "translations").glob("*.json")),
+    ]:
+        for text in _strings(json.loads(path.read_text(encoding="utf-8"))):
+            assert "<" not in text, f"{path.name}: angle bracket in {text!r}"
