@@ -78,6 +78,11 @@ prostować z przedsiębiorstwem, więc wywołanie jest zawsze świadome — usł
 przyciskiem. Przed wysłaniem wartość jest sprawdzana względem zakresu i liczby cyfr,
 które portal sam podaje, więc literówka nie dojdzie do przedsiębiorstwa.
 
+Przycisk dodatkowo **ucina wartość encji źródłowej do dokładności tarczy**. Nakładka
+radiowa podaje litry, a przedsiębiorstwo zapisuje to, co widać na liczydle; ile cyfr ono
+pokazuje, mówi sam portal. Ucięcie, nie zaokrąglenie — przy 48,6 tarcza nadal pokazuje
+48. Usługa wywołana wprost wysyła to, co jej podasz.
+
 ## Odpytywanie
 
 Domyślnie co 6 godzin. Odczyty i faktury zmieniają się najwyżej raz dziennie, więc
