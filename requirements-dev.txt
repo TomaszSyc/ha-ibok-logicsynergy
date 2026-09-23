@@ -1,7 +1,7 @@
 # Development and CI tooling only. The integration declares no requirements of its own and
 # takes everything from Home Assistant at runtime.
 ruff==0.16.8
-pytest==9.0.3
+pytest==9.1.1
 
 # Home Assistant is here so CI imports the integration against the real thing. That is what
 # catches a helper being renamed or removed upstream -- otherwise the first sign is somebody's
