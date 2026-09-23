@@ -17,6 +17,10 @@ Wersja wczesna, do testów. Portal nie ma publicznego API — integracja korzyst
 samych zapytań, co przeglądarka. Zmiana po stronie dostawcy oprogramowania może ją
 zepsuć.
 
+**Podanie odczytu nie zostało jeszcze potwierdzone na żywym koncie.** Pobieranie danych
+tak. Odczyt trafia na fakturę, więc dopóki tego nie sprawdzimy, po wysłaniu zajrzyj do
+portalu i upewnij się, że zgłoszenie tam jest.
+
 ## Instalacja
 
 [![Otwórz repozytorium w HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TomaszSyc&repository=ha-ibok-logicsynergy&category=integration)
