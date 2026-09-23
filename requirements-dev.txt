@@ -1,13 +1,15 @@
 # Development and CI tooling only. The integration declares no requirements of its own and
 # takes everything from Home Assistant at runtime.
 ruff==0.16.8
-pytest==9.1.1
+pytest==9.0.3
 
 # Home Assistant is here so CI imports the integration against the real thing. That is what
 # catches a helper being renamed or removed upstream -- otherwise the first sign is somebody's
 # instance refusing to load the integration after an update.
 homeassistant==2026.9.3
 
-# Each release of this pins exactly one Home Assistant version: 0.13.366 pins 2026.9.3.
-# The two lines have to move together, and test_pins.py fails if they ever disagree.
+# This pins exact versions of Home Assistant AND of pytest itself -- 0.13.366 pins
+# homeassistant 2026.9.3 and pytest 9.0.3. Taking the newest pytest from PyPI instead makes
+# pip refuse to resolve anything at all. test_pins.py compares every pin above against what
+# this package demands, so the mismatch fails a test rather than a CI install.
 pytest-homeassistant-custom-component==0.13.366
