@@ -1,0 +1,38 @@
+name: CodeQL
+
+# The API endpoint for default setup needs a token scope this repository's owner
+# does not hand out, so the scan is configured here instead. Same analysis, and
+# it stays visible in the repository like the rest of the checks.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Findings arrive as the query pack learns new patterns, not only when the
+    # code changes, so this runs on a schedule as well as on every push.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          # security-extended adds lower-severity queries. This integration
+          # handles someone's utility account credentials, so the extra noise is
+          # worth it.
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@v4
