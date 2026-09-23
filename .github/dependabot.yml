@@ -5,9 +5,15 @@ updates:
     schedule:
       interval: weekly
 
-  # Each bump of homeassistant or pytest-homeassistant-custom-component is a pull request
-  # that asks one question: does the integration still import against the new release?
+  # Each bump of pytest-homeassistant-custom-component is a pull request that asks one
+  # question: does the integration still import against the Home Assistant it pins?
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
+    # That package pins homeassistant and pytest exactly, so a bump of either on its own
+    # can only contradict it -- pip then refuses to resolve the environment at all. They
+    # move when it moves.
+    ignore:
+      - dependency-name: homeassistant
+      - dependency-name: pytest
