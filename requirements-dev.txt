@@ -1,0 +1,13 @@
+# Development and CI tooling only. The integration declares no requirements of its own and
+# takes everything from Home Assistant at runtime.
+ruff==0.16.8
+pytest==9.1.1
+
+# Home Assistant is here so CI imports the integration against the real thing. That is what
+# catches a helper being renamed or removed upstream -- otherwise the first sign is somebody's
+# instance refusing to load the integration after an update.
+homeassistant==2026.9.3
+
+# Each release of this pins exactly one Home Assistant version: 0.13.366 pins 2026.9.3.
+# The two lines have to move together, and test_pins.py fails if they ever disagree.
+pytest-homeassistant-custom-component==0.13.366

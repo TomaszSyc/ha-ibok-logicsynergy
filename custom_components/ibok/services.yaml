@@ -1,0 +1,25 @@
+submit_reading:
+  fields:
+    reading:
+      required: true
+      example: 48
+      selector:
+        number:
+          min: 0
+          max: 9999999
+          step: 0.001
+          mode: box
+    meter_id:
+      required: false
+      example: 12345
+      selector:
+        number:
+          mode: box
+    reading_date:
+      required: false
+      selector:
+        date:
+    note:
+      required: false
+      selector:
+        text:

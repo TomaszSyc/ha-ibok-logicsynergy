@@ -1,0 +1,87 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "base_url": "Adres portalu",
+          "username": "Login",
+          "password": "Hasło"
+        },
+        "data_description": {
+          "base_url": "Adres iBOK Twojego przedsiębiorstwa, np. https://ibok.przyklad.pl"
+        }
+      },
+      "reauth_confirm": {
+        "data": {
+          "password": "Hasło"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć się z portalem",
+      "invalid_auth": "Portal odrzucił te dane logowania",
+      "unknown": "Nieoczekiwana odpowiedź portalu"
+    },
+    "abort": {
+      "already_configured": "To konto jest już skonfigurowane",
+      "reauth_successful": "Dane logowania zaktualizowane"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Częstotliwość odpytywania"
+        },
+        "data_description": {
+          "scan_interval": "Odczyty i faktury zmieniają się najwyżej raz dziennie — długi odstęp w zupełności wystarcza i nie obciąża serwera przedsiębiorstwa. Pola source_entity_<numer> są opcjonalne: wskaż encję tylko przy tym wodomierzu, dla którego ją masz, a pojawi się dla niego przycisk."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "balance": {
+        "name": "Saldo"
+      },
+      "last_invoice": {
+        "name": "Ostatnia faktura"
+      },
+      "last_reading": {
+        "name": "Wodomierz {serial} — stan"
+      },
+      "last_consumption": {
+        "name": "Wodomierz {serial} — zużycie"
+      }
+    },
+    "button": {
+      "submit_reading": {
+        "name": "Podaj odczyt wodomierza {serial}"
+      }
+    }
+  },
+  "services": {
+    "submit_reading": {
+      "name": "Podaj odczyt wodomierza",
+      "description": "Wysyła odczyt do przedsiębiorstwa. Wartość jest sprawdzana względem zakresu podanego przez portal, zanim cokolwiek zostanie wysłane.",
+      "fields": {
+        "reading": {
+          "name": "Stan licznika",
+          "description": "Stan wodomierza."
+        },
+        "meter_id": {
+          "name": "ID wodomierza",
+          "description": "Wymagane tylko, gdy odczyt przyjmuje kilka wodomierzy."
+        },
+        "reading_date": {
+          "name": "Data odczytu",
+          "description": "Domyślnie dzisiaj."
+        },
+        "note": {
+          "name": "Uwagi",
+          "description": "Opcjonalna uwaga dla przedsiębiorstwa."
+        }
+      }
+    }
+  }
+}

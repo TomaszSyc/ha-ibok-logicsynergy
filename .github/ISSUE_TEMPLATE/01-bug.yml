@@ -1,0 +1,35 @@
+name: Błąd
+description: Coś nie działa
+labels: [bug]
+body:
+  - type: input
+    id: portal
+    attributes:
+      label: Przedsiębiorstwo / adres iBOK
+      description: Adres portalu. Bez loginu i hasła.
+      placeholder: https://ibok.przyklad.pl
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Wersje
+      description: Wersja integracji (z manifest.json) i Home Assistanta.
+      placeholder: "0.1.0 / 2026.9.3"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Co się stało
+      description: Co zrobiłeś, czego oczekiwałeś, co wyszło.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logi
+      description: >
+        Ustawienia → System → Logi, filtr `ibok`. Przejrzyj przed wklejeniem —
+        logi potrafią zawierać adres i numer wodomierza.
+      render: text

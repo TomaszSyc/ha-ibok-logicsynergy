@@ -1,0 +1,15 @@
+name: Propozycja
+description: Pomysł na rozszerzenie
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Co miałoby robić
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Po co
+      description: Jaki problem to rozwiązuje.

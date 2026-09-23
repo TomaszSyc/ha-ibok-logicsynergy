@@ -1,0 +1,30 @@
+name: HACS
+
+# Weekly and manual, not on every push. This is installed as a custom repository rather than
+# submitted to the default store, so most of what the action checks is not a gate here. It
+# runs to catch the parts that do matter: that hacs.json parses and the integration sits
+# where HACS looks for it.
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    name: Home Assistant manifest validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: home-assistant/actions/hassfest@master

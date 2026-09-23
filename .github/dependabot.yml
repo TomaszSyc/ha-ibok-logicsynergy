@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # Each bump of homeassistant or pytest-homeassistant-custom-component is a pull request
+  # that asks one question: does the integration still import against the new release?
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly

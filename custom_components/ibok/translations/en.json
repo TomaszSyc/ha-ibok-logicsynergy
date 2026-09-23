@@ -1,0 +1,87 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "base_url": "Portal address",
+          "username": "Login",
+          "password": "Password"
+        },
+        "data_description": {
+          "base_url": "Address of your operator's iBOK, for example https://ibok.example.pl"
+        }
+      },
+      "reauth_confirm": {
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the portal",
+      "invalid_auth": "The portal rejected these credentials",
+      "unknown": "Unexpected response from the portal"
+    },
+    "abort": {
+      "already_configured": "This account is already set up",
+      "reauth_successful": "Credentials updated"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Polling interval"
+        },
+        "data_description": {
+          "scan_interval": "Readings and invoices change at most once a day; a long interval is enough and keeps load off the operator's server. Fields named source_entity_<serial> are optional: set one only where some entity already holds that meter's reading, and a button appears for it."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "balance": {
+        "name": "Balance"
+      },
+      "last_invoice": {
+        "name": "Last invoice"
+      },
+      "last_reading": {
+        "name": "Meter {serial} reading"
+      },
+      "last_consumption": {
+        "name": "Meter {serial} consumption"
+      }
+    },
+    "button": {
+      "submit_reading": {
+        "name": "Submit reading for meter {serial}"
+      }
+    }
+  },
+  "services": {
+    "submit_reading": {
+      "name": "Submit meter reading",
+      "description": "Sends a meter reading to the operator. The value is checked against the range the portal reports before anything is sent.",
+      "fields": {
+        "reading": {
+          "name": "Reading",
+          "description": "Meter reading."
+        },
+        "meter_id": {
+          "name": "Meter ID",
+          "description": "Required only when several meters accept a reading."
+        },
+        "reading_date": {
+          "name": "Reading date",
+          "description": "Defaults to today."
+        },
+        "note": {
+          "name": "Note",
+          "description": "Optional note for the operator."
+        }
+      }
+    }
+  }
+}

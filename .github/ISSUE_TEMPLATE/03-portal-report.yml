@@ -1,0 +1,29 @@
+name: Inne przedsiębiorstwo
+description: Integracja działa (albo nie) na innym iBOK-u niż testowany
+labels: [portal-report]
+body:
+  - type: input
+    id: portal
+    attributes:
+      label: Adres iBOK
+      placeholder: https://ibok.przyklad.pl
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Wynik
+      options:
+        - Działa w całości
+        - Działa częściowo
+        - Nie działa wcale
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Co zadziałało, a co nie
+      description: >
+        Które encje się pojawiły, czy udało się podać odczyt. Moduły bywają
+        wyłączane przez przedsiębiorstwo i wtedy zwracają pustą odpowiedź —
+        to nie jest błąd integracji.

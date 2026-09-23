@@ -1,0 +1,27 @@
+# Fast checks only. Anything that needs Home Assistant installed runs in CI instead, so a
+# commit never waits on a dependency resolve.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Two trailing spaces are a line break in Markdown.
+        exclude_types: [markdown]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      # This integration handles portal passwords. A stray credential must not reach a
+      # commit in the first place -- rewriting history afterwards does not unpublish it.
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format

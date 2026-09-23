@@ -1,0 +1,67 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Ruff and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          # Home Assistant 2026.9 requires >= 3.14.
+          python-version: "3.14"
+
+      - name: Install tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check --output-format=github .
+
+      - name: Formatting
+        run: ruff format --check --diff .
+
+      - name: Tests
+        run: pytest tests/ -q
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks scans history, which needs more than the default shallow clone.
+          fetch-depth: 0
+
+      # GitHub's own secret scanning needs Advanced Security on private repositories, so
+      # this covers the gap. The gitleaks action is avoided on purpose: it calls the GitHub
+      # API to annotate pull requests and fails outright on Dependabot ones, where the token
+      # is restricted. All we want is the scan.
+      #
+      # Dependabot cannot bump a version pinned in a shell variable, so this one moves by hand.
+      - name: Scan history for secrets
+        shell: bash
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+
+          ./gitleaks git . --redact --no-banner --exit-code 1 2>&1 | tee scan.log
+
+          # gitleaks exits 0 when it cannot read the repository at all, so a broken scan is
+          # indistinguishable from a clean one unless we insist it saw something.
+          grep -qE "[1-9][0-9]* commits scanned" scan.log || {
+            echo "::error::gitleaks scanned no commits; treating this as a failed scan"
+            exit 1
+          }

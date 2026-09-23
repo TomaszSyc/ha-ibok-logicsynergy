@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Tag matches manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # HACS installs from the latest release, not from the branch. If the tag and
+      # manifest.json disagree, HACS reports one version while the files on disk say
+      # another -- and there is then no way to tell what an instance is actually running.
+      - name: Compare tag with manifest version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(python3 -c "import json; print(json.load(open('custom_components/ibok/manifest.json'))['version'])")
+          echo "tag=$tag manifest=$manifest"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag $tag does not match manifest version $manifest"
+            exit 1
+          fi
