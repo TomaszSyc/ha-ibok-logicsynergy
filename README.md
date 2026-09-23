@@ -83,6 +83,21 @@ radiowa podaje litry, a przedsiębiorstwo zapisuje to, co widać na liczydle; il
 pokazuje, mówi sam portal. Ucięcie, nie zaokrąglenie — przy 48,6 tarcza nadal pokazuje
 48. Usługa wywołana wprost wysyła to, co jej podasz.
 
+### Przycisk pyta o potwierdzenie
+
+Pierwsze naciśnięcie **nic nie wysyła**. Odpowiada komunikatem z wartością i wodomierzem,
+do którego by poszła, a wysyła dopiero drugie naciśnięcie w ciągu minuty:
+
+> Nic nie wysłano. Naciśnij ponownie w ciągu 60 s, aby zgłosić 48 m³ dla wodomierza
+> 12345678 (ID iBOK 10001).
+
+Potwierdzenie siedzi w encji, nie na karcie panelu, bo okno potwierdzenia w Lovelace jest
+własnością karty — nie zadziałałoby na stronie urządzenia, w skrypcie ani w sterowaniu
+głosem. Jego treść jest przy tym statyczna, więc nie pokazałaby wartości.
+
+Jeśli między naciśnięciami encja źródłowa się zmieni, integracja pyta od nowa: potwierdzasz
+liczbę, którą zobaczyłeś.
+
 ## Odpytywanie
 
 Domyślnie co 6 godzin. Odczyty i faktury zmieniają się najwyżej raz dziennie, więc

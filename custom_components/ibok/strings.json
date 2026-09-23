@@ -83,5 +83,10 @@
         }
       }
     }
+  },
+  "exceptions": {
+    "press_again_to_send": {
+      "message": "Nothing was sent. Press again within {seconds} s to report {reading} m³ for meter {serial} (iBOK id {meter_id})."
+    }
   }
 }

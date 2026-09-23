@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
@@ -10,6 +11,7 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import IbokConfigEntry
 from .const import (
@@ -23,6 +25,28 @@ from .coordinator import IbokCoordinator
 from .entity import IbokEntity
 
 _LOGGER = logging.getLogger(__name__)
+
+CONFIRM_WINDOW = timedelta(seconds=60)
+
+
+def _as_text(value: float) -> str:
+    """A reading as a person reads it: no trailing .0 on a whole reading."""
+    return str(int(value)) if value == int(value) else str(value)
+
+
+def press_confirms(
+    armed: tuple[datetime, float] | None, reading: float, now: datetime
+) -> bool:
+    """Whether this press confirms the value the previous one announced.
+
+    A source entity keeps moving -- a radio overlay reports every minute.
+    Confirming a value that has changed since it was announced would send a
+    number nobody was shown, so a changed reading has to be announced again.
+    """
+    if armed is None:
+        return False
+    deadline, announced = armed
+    return now <= deadline and announced == reading
 
 
 def truncate_to_dial(value: float, digits: int) -> float:
@@ -63,13 +87,24 @@ async def async_setup_entry(
 
 
 class IbokSubmitButton(IbokEntity, ButtonEntity):
-    """Sends the current value of the source entity as a meter reading."""
+    """Sends the current value of the source entity as a meter reading.
+
+    A press is confirmed by a second press. Home Assistant has no confirmation
+    for a button entity -- the dialog a dashboard card can show is a property
+    of the card, so it does nothing on the device page, in a script or in voice
+    control. The reading lands on somebody's bill, so the confirmation belongs
+    to the entity and has to work wherever the entity is pressed.
+
+    The first press answers with the value and the meter it would go to, which
+    is the part a dashboard dialog cannot show: its text is static.
+    """
 
     _attr_translation_key = "submit_reading"
 
     def __init__(self, coordinator: IbokCoordinator, meter: dict) -> None:
         self._meter_id = int(meter["id_wodom"])
         self._serial = str(meter.get("numer_fabryczny") or self._meter_id)
+        self._armed: tuple[datetime, float] | None = None
         super().__init__(coordinator, f"{self._serial}_submit", self._serial)
 
     async def async_press(self) -> None:
@@ -91,6 +126,21 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
 
         reading = self.reading_to_submit(reading)
 
+        if not self._is_confirmed(reading):
+            self._armed = (dt_util.utcnow() + CONFIRM_WINDOW, reading)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="press_again_to_send",
+                translation_placeholders={
+                    "reading": _as_text(reading),
+                    "serial": self._serial,
+                    "meter_id": str(self._meter_id),
+                    "seconds": str(int(CONFIRM_WINDOW.total_seconds())),
+                },
+            )
+
+        self._armed = None
+
         # Routed through the service so that validation against the portal's
         # allowed range happens in exactly one place.
         await self.hass.services.async_call(
@@ -99,6 +149,9 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
             {ATTR_READING: reading, ATTR_METER_ID: self._meter_id},
             blocking=True,
         )
+
+    def _is_confirmed(self, reading: float) -> bool:
+        return press_confirms(self._armed, reading, dt_util.utcnow())
 
     def reading_to_submit(self, value: float) -> float:
         """The source value cut down to the precision this meter is read at."""

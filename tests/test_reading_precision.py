@@ -1,8 +1,10 @@
 """A reading sent at the wrong precision lands on somebody's bill."""
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
-from custom_components.ibok.button import truncate_to_dial
+from custom_components.ibok.button import press_confirms, truncate_to_dial
 
 
 @pytest.mark.parametrize(
@@ -27,3 +29,21 @@ from custom_components.ibok.button import truncate_to_dial
 )
 def test_truncate_to_dial(value: float, digits: int, expected: float) -> None:
     assert truncate_to_dial(value, digits) == pytest.approx(expected)
+
+
+def test_press_confirms() -> None:
+    """The second press sends only what the first press announced."""
+    now = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+    deadline = now + timedelta(seconds=60)
+
+    # Nothing announced yet.
+    assert press_confirms(None, 48.0, now) is False
+    # Announced, still in the window, same value.
+    assert press_confirms((deadline, 48.0), 48.0, now) is True
+    # Window elapsed.
+    assert (
+        press_confirms((deadline, 48.0), 48.0, deadline + timedelta(seconds=1))
+        is False
+    )
+    # The meter moved between the two presses, so the value was never shown.
+    assert press_confirms((deadline, 48.0), 49.0, now) is False

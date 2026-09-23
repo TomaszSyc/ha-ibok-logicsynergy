@@ -40,8 +40,11 @@ def test_entity_names_have_no_unfilled_placeholders() -> None:
     Without them Home Assistant renders the braces literally, so the entity
     shows up as "Wodomierz {serial} - stan". Nothing logs a warning.
     """
+    # Specifically the entity attribute: the `translation_placeholders=` keyword
+    # that a translated exception takes would otherwise satisfy this check while
+    # entity names stayed broken.
     sources = "\n".join(path.read_text(encoding="utf-8") for path in ROOT.glob("*.py"))
-    declared = "translation_placeholders" in sources
+    declared = "_attr_translation_placeholders" in sources
 
     for path in [
         ROOT / "strings.json",
