@@ -84,3 +84,41 @@ def test_no_angle_brackets_in_translations() -> None:
     ]:
         for text in _strings(json.loads(path.read_text(encoding="utf-8"))):
             assert "<" not in text, f"{path.name}: angle bracket in {text!r}"
+
+
+def test_no_urls_in_translations() -> None:
+    """hassfest rejects a URL in a string; it belongs in description_placeholders.
+
+    The integration fails Home Assistant's own manifest validation over this,
+    which is what HACS and any later submission run.
+    """
+    for path in [
+        ROOT / "strings.json",
+        *sorted((ROOT / "translations").glob("*.json")),
+    ]:
+        for text in _strings(json.loads(path.read_text(encoding="utf-8"))):
+            assert "http://" not in text and "https://" not in text, (
+                f"{path.name}: URL in {text!r}"
+            )
+
+
+def test_hacs_json_has_only_known_keys() -> None:
+    """HACS validates hacs.json against a strict schema.
+
+    An unknown key -- `render_readme` was one, and was removed from the schema --
+    makes the whole file invalid, and HACS then cannot locate the integration.
+    """
+    znane = {
+        "name",
+        "content_in_root",
+        "zip_release",
+        "filename",
+        "hide_default_branch",
+        "country",
+        "homeassistant",
+        "hacs",
+        "persistent_directory",
+    }
+    hacs = json.loads((ROOT.parent.parent / "hacs.json").read_text(encoding="utf-8"))
+    assert hacs.get("name"), "hacs.json must name the repository"
+    assert set(hacs) <= znane, f"unknown hacs.json keys: {sorted(set(hacs) - znane)}"

@@ -8,7 +8,7 @@
           "password": "Hasło"
         },
         "data_description": {
-          "base_url": "Adres iBOK Twojego przedsiębiorstwa, np. https://ibok.przyklad.pl"
+          "base_url": "Adres iBOK Twojego przedsiębiorstwa, dokładnie taki, jaki widzisz w pasku adresu przeglądarki."
         }
       },
       "reauth_confirm": {

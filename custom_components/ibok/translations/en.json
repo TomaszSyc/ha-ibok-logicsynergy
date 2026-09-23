@@ -8,7 +8,7 @@
           "password": "Password"
         },
         "data_description": {
-          "base_url": "Address of your operator's iBOK, for example https://ibok.example.pl"
+          "base_url": "The address of your operator's iBOK, exactly as it appears in your browser's address bar."
         }
       },
       "reauth_confirm": {
