@@ -42,8 +42,7 @@ def test_press_confirms() -> None:
     assert press_confirms((deadline, 48.0), 48.0, now) is True
     # Window elapsed.
     assert (
-        press_confirms((deadline, 48.0), 48.0, deadline + timedelta(seconds=1))
-        is False
+        press_confirms((deadline, 48.0), 48.0, deadline + timedelta(seconds=1)) is False
     )
     # The meter moved between the two presses, so the value was never shown.
     assert press_confirms((deadline, 48.0), 49.0, now) is False

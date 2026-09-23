@@ -96,7 +96,7 @@ własnością karty — nie zadziałałoby na stronie urządzenia, w skrypcie an
 głosem. Jego treść jest przy tym statyczna, więc nie pokazałaby wartości.
 
 Pytanie wraca tylko wtedy, gdy zmieni się **liczba, którą widzisz** — bo porównywana jest
-wartość już ucięta do dokładności tarczy. Przy wodomierzu odczytywanym w pełnych m³ ruch ze
+wartość już ucięta do dokładności tarczy. Przy wodomierzu odczytywanym w pełnych m³ ruch z
 48,002 na 48,004 nadal potwierdza; dopiero przeskok na 49 pyta od nowa.
 
 ## Odpytywanie
