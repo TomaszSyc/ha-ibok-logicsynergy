@@ -34,21 +34,6 @@ def _as_text(value: float) -> str:
     return str(int(value)) if value == int(value) else str(value)
 
 
-def press_confirms(
-    armed: tuple[datetime, float] | None, reading: float, now: datetime
-) -> bool:
-    """Whether this press confirms the value the previous one announced.
-
-    A source entity keeps moving -- a radio overlay reports every minute.
-    Confirming a value that has changed since it was announced would send a
-    number nobody was shown, so a changed reading has to be announced again.
-    """
-    if armed is None:
-        return False
-    deadline, announced = armed
-    return now <= deadline and announced == reading
-
-
 def truncate_to_dial(value: float, digits: int) -> float:
     """Cut a source value down to the precision the meter is read at.
 
@@ -66,6 +51,38 @@ def truncate_to_dial(value: float, digits: int) -> float:
     """
     quantum = Decimal(1).scaleb(-digits) if digits > 0 else Decimal(1)
     return float(Decimal(str(value)).quantize(quantum, rounding=ROUND_DOWN))
+
+
+def press_confirms(
+    armed: tuple[datetime, float] | None, reading: float, now: datetime
+) -> bool:
+    """Whether this press confirms the value the previous one announced.
+
+    A source entity keeps moving -- a radio overlay reports every minute.
+    Confirming a value that has changed since it was announced would send a
+    number nobody was shown, so a changed reading has to be announced again.
+    """
+    if armed is None:
+        return False
+    deadline, announced = armed
+    return now <= deadline and announced == reading
+
+
+def plan_press(
+    source_value: float,
+    digits: int,
+    armed: tuple[datetime, float] | None,
+    now: datetime,
+) -> tuple[str, float]:
+    """Decide what a press does: ``("send", value)`` or ``("announce", value)``.
+
+    The source value is cut to the dial's precision *before* it is compared
+    with the announced one, so what re-opens the question is a change the
+    operator would see. On a meter read in whole cubic metres, 48.002 moving
+    to 48.004 is the same reading and confirms; 48 moving to 49 does not.
+    """
+    reading = truncate_to_dial(source_value, digits)
+    return ("send" if press_confirms(armed, reading, now) else "announce", reading)
 
 
 async def async_setup_entry(
@@ -124,10 +141,11 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
                 f"Source entity {source} does not hold a number: {state.state}"
             ) from err
 
-        reading = self.reading_to_submit(reading)
+        now = dt_util.utcnow()
+        decision, reading = plan_press(reading, self.fraction_digits, self._armed, now)
 
-        if not self._is_confirmed(reading):
-            self._armed = (dt_util.utcnow() + CONFIRM_WINDOW, reading)
+        if decision == "announce":
+            self._armed = (now + CONFIRM_WINDOW, reading)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="press_again_to_send",
@@ -149,13 +167,6 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
             {ATTR_READING: reading, ATTR_METER_ID: self._meter_id},
             blocking=True,
         )
-
-    def _is_confirmed(self, reading: float) -> bool:
-        return press_confirms(self._armed, reading, dt_util.utcnow())
-
-    def reading_to_submit(self, value: float) -> float:
-        """The source value cut down to the precision this meter is read at."""
-        return truncate_to_dial(value, self.fraction_digits)
 
     @property
     def fraction_digits(self) -> int:

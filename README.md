@@ -95,8 +95,9 @@ Potwierdzenie siedzi w encji, nie na karcie panelu, bo okno potwierdzenia w Love
 własnością karty — nie zadziałałoby na stronie urządzenia, w skrypcie ani w sterowaniu
 głosem. Jego treść jest przy tym statyczna, więc nie pokazałaby wartości.
 
-Jeśli między naciśnięciami encja źródłowa się zmieni, integracja pyta od nowa: potwierdzasz
-liczbę, którą zobaczyłeś.
+Pytanie wraca tylko wtedy, gdy zmieni się **liczba, którą widzisz** — bo porównywana jest
+wartość już ucięta do dokładności tarczy. Przy wodomierzu odczytywanym w pełnych m³ ruch ze
+48,002 na 48,004 nadal potwierdza; dopiero przeskok na 49 pyta od nowa.
 
 ## Odpytywanie
 
