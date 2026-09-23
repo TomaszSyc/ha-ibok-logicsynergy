@@ -1,10 +1,18 @@
 name: HACS
 
-# Weekly and manual, not on every push. This is installed as a custom repository rather than
-# submitted to the default store, so most of what the action checks is not a gate here. It
-# runs to catch the parts that do matter: that hacs.json parses and the integration sits
-# where HACS looks for it.
+# On every push, because these checks decide whether anyone else can install this at all,
+# and nothing in Home Assistant reports them: an instance loads the integration happily
+# while HACS refuses to offer it. The weekly run stays -- the action tracks HACS's own
+# requirements, which change without this repository changing.
+#
+# Note it needs a PUBLIC repository to mean anything: HACS reads repository content
+# unauthenticated, so on a private one hacs.json and manifest.json come back empty and the
+# run fails with errors that look like broken files.
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
