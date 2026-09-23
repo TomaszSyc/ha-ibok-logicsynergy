@@ -1,4 +1,4 @@
-# iBOK (LogicSynergy) — integracja Home Assistant
+# <img src="custom_components/ibok/brand/icon.png" alt="" width="36" align="top"> iBOK (LogicSynergy) — integracja Home Assistant
 
 [![Wydanie](https://img.shields.io/github/v/release/TomaszSyc/ha-ibok-logicsynergy?display_name=tag&sort=semver)](https://github.com/TomaszSyc/ha-ibok-logicsynergy/releases)
 [![Quality](https://github.com/TomaszSyc/ha-ibok-logicsynergy/actions/workflows/quality.yml/badge.svg)](https://github.com/TomaszSyc/ha-ibok-logicsynergy/actions/workflows/quality.yml)
