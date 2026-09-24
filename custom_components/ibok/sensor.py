@@ -13,6 +13,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import IbokConfigEntry
 from .coordinator import IbokCoordinator
@@ -99,7 +100,9 @@ class IbokLastInvoiceSensor(IbokEntity, SensorEntity):
 
     _attr_translation_key = "last_invoice"
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_state_class = SensorStateClass.TOTAL
+    # No state class. Each value is one document, not a running total, and
+    # Home Assistant allows only TOTAL for money: without a reset it would read
+    # a smaller next bill as a negative change in the long-term statistics.
 
     def __init__(self, coordinator: IbokCoordinator) -> None:
         super().__init__(coordinator, "last_invoice")
@@ -173,3 +176,18 @@ class IbokLastConsumptionSensor(_MeterSensor):
     def native_value(self) -> float | None:
         last = self._last()
         return _to_float(last.get("zu")) if last else None
+
+    @property
+    def last_reset(self) -> datetime | None:
+        """Start of the period this consumption covers: the reading before it.
+
+        Without a reset, Home Assistant takes 9, 7, 8 m3 for a running
+        total, and every smaller month becomes a negative change in the
+        long-term statistics.
+        """
+        rows = _readouts_for(self.coordinator, self._serial)
+        if not rows:
+            return None
+        start = rows[-2] if len(rows) > 1 else rows[-1]
+        day = _to_date(start.get("do"))
+        return dt_util.start_of_local_day(day) if day else None

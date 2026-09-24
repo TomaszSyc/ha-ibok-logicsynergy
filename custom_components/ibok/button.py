@@ -8,10 +8,12 @@ from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfVolume
+from homeassistant.core import HomeAssistant, State
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import VolumeConverter
 
 from . import IbokConfigEntry
 from .const import CONF_SOURCE_ENTITY_PREFIX, DOMAIN
@@ -22,6 +24,14 @@ from .submit import async_submit
 _LOGGER = logging.getLogger(__name__)
 
 CONFIRM_WINDOW = timedelta(seconds=60)
+# A double click is one press, not an announcement read and then confirmed.
+MIN_CONFIRM_GAP = timedelta(seconds=2)
+# A radio overlay reports about every minute; a day of silence means the reader
+# is dead and the entity is only showing its last value.
+MAX_SOURCE_AGE = timedelta(hours=24)
+
+# (announced at, confirm by, value announced, user who pressed)
+type Armed = tuple[datetime, datetime, float, str | None]
 
 
 def _as_text(value: float) -> str:
@@ -49,25 +59,33 @@ def truncate_to_dial(value: float, digits: int) -> float:
 
 
 def press_confirms(
-    armed: tuple[datetime, float] | None, reading: float, now: datetime
+    armed: Armed | None, reading: float, now: datetime, user_id: str | None
 ) -> bool:
     """Whether this press confirms the value the previous one announced.
 
     A source entity keeps moving -- a radio overlay reports every minute.
     Confirming a value that has changed since it was announced would send a
     number nobody was shown, so a changed reading has to be announced again.
+    The confirmation has to come from whoever saw the announcement, and not in
+    the same instant: a double click would otherwise confirm unread.
     """
     if armed is None:
         return False
-    deadline, announced = armed
-    return now <= deadline and announced == reading
+    announced_at, deadline, announced, announced_by = armed
+    return (
+        now - announced_at >= MIN_CONFIRM_GAP
+        and now <= deadline
+        and announced == reading
+        and user_id == announced_by
+    )
 
 
 def plan_press(
     source_value: float,
     digits: int,
-    armed: tuple[datetime, float] | None,
+    armed: Armed | None,
     now: datetime,
+    user_id: str | None = None,
 ) -> tuple[str, float]:
     """Decide what a press does: ``("send", value)`` or ``("announce", value)``.
 
@@ -77,7 +95,43 @@ def plan_press(
     to 48.004 is the same reading and confirms; 48 moving to 49 does not.
     """
     reading = truncate_to_dial(source_value, digits)
-    return ("send" if press_confirms(armed, reading, now) else "announce", reading)
+    confirmed = press_confirms(armed, reading, now, user_id)
+    return ("send" if confirmed else "announce", reading)
+
+
+def source_reading(state: State | None, now: datetime) -> float:
+    """The source entity's value in cubic metres, or refuse it.
+
+    Converted by its unit: a sensor in litres, or an m3 sensor whose display
+    unit was switched to litres, would otherwise be sent 1000 times too high.
+    Refused when stale: a dead radio overlay keeps showing its last value, and
+    that would be filed as today's reading.
+    """
+    if state is None or state.state in ("unknown", "unavailable"):
+        raise ServiceValidationError("The source entity has no usable value right now")
+    try:
+        value = float(state.state)
+    except ValueError as err:
+        raise ServiceValidationError(
+            f"The source entity does not hold a number: {state.state}"
+        ) from err
+
+    unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    try:
+        cubic_metres = VolumeConverter.convert(value, unit, UnitOfVolume.CUBIC_METERS)
+    except HomeAssistantError as err:
+        raise ServiceValidationError(
+            f"The source entity's unit {unit!r} is not a volume"
+        ) from err
+
+    silent = now - state.last_reported
+    if silent > MAX_SOURCE_AGE:
+        hours = int(silent.total_seconds() // 3600)
+        raise ServiceValidationError(
+            f"The source entity has not reported for {hours} h, so its value may "
+            "be old -- check the meter reader before sending"
+        )
+    return cubic_metres
 
 
 async def async_setup_entry(
@@ -116,32 +170,27 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
     def __init__(self, coordinator: IbokCoordinator, meter: dict) -> None:
         self._meter_id = int(meter["id_wodom"])
         self._serial = str(meter.get("numer_fabryczny") or self._meter_id)
-        self._armed: tuple[datetime, float] | None = None
+        self._armed: Armed | None = None
         super().__init__(coordinator, f"{self._serial}_submit", self._serial)
 
     async def async_press(self) -> None:
         entry = self.coordinator.config_entry
         source = entry.options.get(f"{CONF_SOURCE_ENTITY_PREFIX}{self._serial}")
         state = self.hass.states.get(source) if source else None
-
-        if state is None or state.state in ("unknown", "unavailable"):
-            raise HomeAssistantError(
-                f"Source entity {source} has no usable value right now"
-            )
-
-        try:
-            reading = float(state.state)
-        except ValueError as err:
-            raise HomeAssistantError(
-                f"Source entity {source} does not hold a number: {state.state}"
-            ) from err
-
         now = dt_util.utcnow()
-        decision, reading = plan_press(reading, self.fraction_digits, self._armed, now)
+        value = source_reading(state, now)
+        user_id = self._context.user_id if self._context else None
+
+        decision, reading = plan_press(
+            value, self.fraction_digits, self._armed, now, user_id
+        )
 
         if decision == "announce":
-            self._armed = (now + CONFIRM_WINDOW, reading)
-            raise HomeAssistantError(
+            self._armed = (now, now + CONFIRM_WINDOW, reading, user_id)
+            # A validation error, not a failure: it is the expected answer to a
+            # first press, and Home Assistant logs only real failures with a
+            # full traceback.
+            raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="press_again_to_send",
                 translation_placeholders={

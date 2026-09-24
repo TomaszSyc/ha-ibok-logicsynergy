@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -162,18 +163,38 @@ class IbokConfigFlow(ConfigFlow, domain=DOMAIN):
         return IbokOptionsFlow()
 
 
+def merge_options(
+    existing: Mapping[str, Any], shown: Iterable[str], submitted: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Apply what the form showed and leave everything else as it was.
+
+    The form lists only the meters the portal accepts a reading for right now,
+    and none while the entry is not loaded. Replacing the options with the
+    submitted form would silently delete the source entity, and with it the
+    button, of every meter that happened not to be listed.
+    """
+    merged = dict(existing)
+    for key in shown:
+        value = submitted.get(key)
+        if value in (None, ""):
+            # An emptied field is how an assignment is removed on purpose.
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
 class IbokOptionsFlow(OptionsFlow):
     """Polling interval, plus an optional source entity for each meter."""
+
+    _shown: list[str]
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            # Dropping empty values is what lets an assignment be removed again:
-            # an empty selector would otherwise be stored as "" and the button
-            # would keep existing while never having anything to send.
             return self.async_create_entry(
-                data={k: v for k, v in user_input.items() if v not in (None, "")}
+                data=merge_options(self.config_entry.options, self._shown, user_input)
             )
 
         options = self.config_entry.options
@@ -208,6 +229,7 @@ class IbokOptionsFlow(OptionsFlow):
                 vol.Optional(key, description={"suggested_value": options.get(key)})
             ] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
+        self._shown = [str(key) for key in fields]
         return self.async_show_form(step_id="init", data_schema=vol.Schema(fields))
 
     def _meters(self) -> list[dict[str, Any]]:

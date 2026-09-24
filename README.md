@@ -112,6 +112,11 @@ Pytanie wraca tylko wtedy, gdy zmieni się **liczba, którą widzisz** — bo po
 wartość już ucięta do dokładności tarczy. Przy wodomierzu odczytywanym w pełnych m³ ruch z
 48,002 na 48,004 nadal potwierdza; dopiero przeskok na 49 pyta od nowa.
 
+Potwierdzić może tylko ta sama osoba, która dostała komunikat, i nie w tej samej chwili —
+podwójne kliknięcie niczego nie wyśle. Wartość encji źródłowej jest przeliczana z jej
+jednostki na m³, a gdy encja nie odzywa się od ponad doby, przycisk odmawia: martwa
+nakładka pokazuje ostatni stan, który wyglądałby jak dzisiejszy.
+
 ## Odpytywanie
 
 Domyślnie co 6 godzin. Odczyty i faktury zmieniają się najwyżej raz dziennie, więc
