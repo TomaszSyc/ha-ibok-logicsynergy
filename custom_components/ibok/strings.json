@@ -20,7 +20,10 @@
     "error": {
       "cannot_connect": "Cannot reach the portal",
       "invalid_auth": "The portal rejected these credentials",
-      "unknown": "Unexpected response from the portal"
+      "unknown": "Unexpected response from the portal",
+      "insecure_url": "The address must use HTTPS. Over plain HTTP the password would travel unencrypted.",
+      "invalid_url": "Enter only the portal address, without a login, query parameters or anything after a hash sign.",
+      "not_ibok": "There is no iBOK portal at this address."
     },
     "abort": {
       "already_configured": "This account is already set up",
@@ -73,6 +76,10 @@
         "meter_id": {
           "name": "Meter ID",
           "description": "Required only when several meters accept a reading."
+        },
+        "config_entry_id": {
+          "name": "Account",
+          "description": "Needed only when two accounts have a meter with the same ID."
         },
         "reading_date": {
           "name": "Reading date",

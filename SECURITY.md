@@ -12,7 +12,8 @@ odpisać w ciągu tygodnia.
 ## Czego dotyczy
 
 Integracja trzyma **login i hasło do konta w portalu wodociągowym** i wysyła je wyłącznie
-pod adres podany przy konfiguracji. Zgłoszeń wartych uwagi szukałbym w:
+pod adres podany przy konfiguracji, zawsze przez HTTPS, nie podążając za przekierowaniem
+poza ten adres. Zgłoszeń wartych uwagi szukałbym w:
 
 - wycieku poświadczeń do logów, atrybutów encji, diagnostyki lub zgłoszeń błędów
 - wysłaniu ich pod inny adres niż skonfigurowany portal

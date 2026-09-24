@@ -14,15 +14,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import IbokConfigEntry
-from .const import (
-    ATTR_METER_ID,
-    ATTR_READING,
-    CONF_SOURCE_ENTITY_PREFIX,
-    DOMAIN,
-    SERVICE_SUBMIT_READING,
-)
+from .const import CONF_SOURCE_ENTITY_PREFIX, DOMAIN
 from .coordinator import IbokCoordinator
 from .entity import IbokEntity
+from .submit import async_submit
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -159,14 +154,10 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
 
         self._armed = None
 
-        # Routed through the service so that validation against the portal's
-        # allowed range happens in exactly one place.
-        await self.hass.services.async_call(
-            DOMAIN,
-            SERVICE_SUBMIT_READING,
-            {ATTR_READING: reading, ATTR_METER_ID: self._meter_id},
-            blocking=True,
-        )
+        # This button's own coordinator, not a lookup through the service: with
+        # two accounts the service has to guess which one is meant, while the
+        # button already knows. Validation stays in one place either way.
+        await async_submit(self.coordinator, self._meter_id, reading)
 
     @property
     def fraction_digits(self) -> int:

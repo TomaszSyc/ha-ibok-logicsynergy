@@ -15,6 +15,11 @@ submit_reading:
       selector:
         number:
           mode: box
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ibok
     reading_date:
       required: false
       selector:

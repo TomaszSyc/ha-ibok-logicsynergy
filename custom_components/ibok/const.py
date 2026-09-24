@@ -28,7 +28,12 @@ MODULE_INVOICES: Final = "Invoices_v1"
 
 SERVICE_SUBMIT_READING: Final = "submit_reading"
 
+# No water meter has more than eight digits before the decimal point. The
+# bound exists so an obviously broken value never reaches the portal.
+MAX_READING: Final = 10**8
+
 ATTR_METER_ID: Final = "meter_id"
+ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
 ATTR_READING: Final = "reading"
 ATTR_READING_DATE: Final = "reading_date"
 ATTR_NOTE: Final = "note"

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urlparse
 
 import voluptuous as vol
 from homeassistant.config_entries import (
@@ -16,8 +15,15 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+from yarl import URL
 
-from .api import IbokApi, IbokAuthError, IbokConnectionError, IbokError
+from .api import (
+    IbokApi,
+    IbokAuthError,
+    IbokConnectionError,
+    IbokError,
+    IbokResponseError,
+)
 from .const import (
     CONF_BASE_URL,
     CONF_SOURCE_ENTITY_PREFIX,
@@ -40,6 +46,36 @@ STEP_USER = vol.Schema(
 )
 
 
+class _AddressError(Exception):
+    """The portal address cannot be used; the argument is the form error key."""
+
+
+def normalise_address(raw: str) -> str:
+    """Return the portal address in one canonical form, or raise _AddressError.
+
+    HTTPS only: over plain HTTP the password travels unencrypted on every
+    login, and the portal's session cookie is marked Secure anyway, so it would
+    not work either. A login, query or fragment in the address is refused:
+    the address becomes the entry title, and so every device name, and a
+    password written into it would end up there.
+    """
+    text = raw.strip()
+    if "://" not in text:
+        text = f"https://{text}"
+    try:
+        url = URL(text)
+    except ValueError as err:
+        raise _AddressError("invalid_url") from err
+
+    if url.scheme != "https":
+        raise _AddressError("insecure_url")
+    if not url.host or url.user or url.password or url.query_string or url.fragment:
+        raise _AddressError("invalid_url")
+
+    port = f":{url.explicit_port}" if url.explicit_port else ""
+    return f"https://{url.host.lower()}{port}{url.path.rstrip('/')}"
+
+
 async def _async_validate(data: dict[str, Any]) -> None:
     api = IbokApi(data[CONF_BASE_URL], data[CONF_USERNAME], data[CONF_PASSWORD])
     try:
@@ -59,25 +95,28 @@ class IbokConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            url = user_input[CONF_BASE_URL].strip().rstrip("/")
-            if not url.startswith(("http://", "https://")):
-                url = f"https://{url}"
-            user_input[CONF_BASE_URL] = url
-
-            host = urlparse(url).netloc
-            await self.async_set_unique_id(f"{host}:{user_input[CONF_USERNAME]}")
-            self._abort_if_unique_id_configured()
-
             try:
-                await _async_validate(user_input)
-            except IbokAuthError:
-                errors["base"] = "invalid_auth"
-            except IbokConnectionError:
-                errors["base"] = "cannot_connect"
-            except IbokError:
-                errors["base"] = "unknown"
+                url = normalise_address(user_input[CONF_BASE_URL])
+            except _AddressError as err:
+                errors[CONF_BASE_URL] = str(err)
             else:
-                return self.async_create_entry(title=host, data=user_input)
+                user_input[CONF_BASE_URL] = url
+                host = URL(url).host
+                await self.async_set_unique_id(f"{host}:{user_input[CONF_USERNAME]}")
+                self._abort_if_unique_id_configured()
+
+                try:
+                    await _async_validate(user_input)
+                except IbokAuthError:
+                    errors["base"] = "invalid_auth"
+                except IbokResponseError:
+                    errors["base"] = "not_ibok"
+                except IbokConnectionError:
+                    errors["base"] = "cannot_connect"
+                except IbokError:
+                    errors["base"] = "unknown"
+                else:
+                    return self.async_create_entry(title=host, data=user_input)
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER, errors=errors

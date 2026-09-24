@@ -20,7 +20,10 @@
     "error": {
       "cannot_connect": "Nie można połączyć się z portalem",
       "invalid_auth": "Portal odrzucił te dane logowania",
-      "unknown": "Nieoczekiwana odpowiedź portalu"
+      "unknown": "Nieoczekiwana odpowiedź portalu",
+      "insecure_url": "Adres musi używać HTTPS. Przez zwykłe HTTP hasło szłoby niezaszyfrowane.",
+      "invalid_url": "Podaj sam adres portalu, bez loginu, parametrów i fragmentu po znaku krzyżyka.",
+      "not_ibok": "Pod tym adresem nie ma portalu iBOK."
     },
     "abort": {
       "already_configured": "To konto jest już skonfigurowane",
@@ -73,6 +76,10 @@
         "meter_id": {
           "name": "ID wodomierza",
           "description": "Wymagane tylko, gdy odczyt przyjmuje kilka wodomierzy."
+        },
+        "config_entry_id": {
+          "name": "Konto",
+          "description": "Potrzebne tylko wtedy, gdy dwa konta mają wodomierz o tym samym ID."
         },
         "reading_date": {
           "name": "Data odczytu",

@@ -37,7 +37,7 @@ Ręcznie: HACS → Integracje → ⋮ → Własne repozytoria → dodaj to repo 
 
 | Pole | Znaczenie |
 |---|---|
-| Adres portalu | np. `https://ibok.przyklad.pl` |
+| Adres portalu | np. `ibok.przyklad.pl`, wyłącznie przez HTTPS |
 | Login, hasło | te same, co na stronie |
 
 W opcjach ustawia się częstotliwość odpytywania (domyślnie 6 h) oraz — **osobno dla
@@ -56,7 +56,11 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
   zostanie wysłany jako odczyt ogrodowego
 - przycisk pojawia się tylko przy tych wodomierzach, którym przypisano encję
 - w usłudze `ibok.submit_reading` trzeba wtedy podać `meter_id` — bez niego integracja
-  odmawia wysłania i wypisuje dostępne identyfikatory, zamiast zgadywać
+  odmawia wysłania i wypisuje dostępne identyfikatory razem z numerami fabrycznymi,
+  zamiast zgadywać
+- przy **dwóch kontach** każdy przycisk wysyła przez swoje konto; usługa szuka
+  wodomierza we wszystkich i pyta o `config_entry_id` tylko wtedy, gdy oba konta mają
+  wodomierz o tym samym identyfikatorze
 
 ## Encje
 
@@ -79,8 +83,13 @@ wodomierza. Opcjonalnie przyjmuje też `reading_date` i `note`.
 
 **Wysłanie nigdy nie następuje samo.** Błędny odczyt trafia na fakturę i trzeba go potem
 prostować z przedsiębiorstwem, więc wywołanie jest zawsze świadome — usługą albo
-przyciskiem. Przed wysłaniem wartość jest sprawdzana względem zakresu i liczby cyfr,
-które portal sam podaje, więc literówka nie dojdzie do przedsiębiorstwa.
+przyciskiem. Tuż przed wysłaniem integracja pyta portal o aktualny zakres, liczbę cyfr
+i poprzedni odczyt — nie ufa danym sprzed kilku godzin — więc literówka nie dojdzie do
+przedsiębiorstwa.
+
+Jeśli odczyt wyszedł, a odpowiedź portalu nie dotarła, integracja mówi to wprost
+i **nie ponawia wysłania**: portal mógł go już zapisać, a drugi raz trafiłby na fakturę.
+Wtedy sprawdź zgłoszenie w portalu, zanim wyślesz ponownie.
 
 Przycisk dodatkowo **ucina wartość encji źródłowej do dokładności tarczy**. Nakładka
 radiowa podaje litry, a przedsiębiorstwo zapisuje to, co widać na liczydle; ile cyfr ono
@@ -113,7 +122,8 @@ pracę serwisu. Nie skracaj tego bez powodu.
 
 Integracja nieoficjalna, niezwiązana z LogicSynergy ani z żadnym przedsiębiorstwem.
 Hasło trafia wyłącznie do konfiguracji Home Assistanta i jest wysyłane tylko do
-wskazanego portalu.
+wskazanego portalu, zawsze przez HTTPS. Integracja nie podąża za przekierowaniem, które
+prowadzi poza ten portal.
 
 ## Rozwój
 
