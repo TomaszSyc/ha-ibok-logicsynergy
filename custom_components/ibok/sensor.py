@@ -11,12 +11,12 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import IbokConfigEntry
-from .coordinator import IbokCoordinator
+from .coordinator import IbokCoordinator, meter_serial
 from .entity import IbokEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,16 +28,29 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: IbokConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SensorEntity] = [
-        IbokBalanceSensor(coordinator),
-        IbokLastInvoiceSensor(coordinator),
-    ]
-    for meter in coordinator.data.get("readouts", []):
-        serial = str(meter.get("numer_fabryczny") or "").strip()
-        if serial:
-            entities.append(IbokLastReadingSensor(coordinator, serial))
-            entities.append(IbokLastConsumptionSensor(coordinator, serial))
-    async_add_entities(entities)
+    async_add_entities(
+        [IbokBalanceSensor(coordinator), IbokLastInvoiceSensor(coordinator)]
+    )
+
+    # Meters are added whenever they appear, not only at start-up: a replaced
+    # meter comes back under a new serial, and a readouts module that failed
+    # at start-up would otherwise leave every meter out until a restart.
+    known: set[str] = set()
+
+    @callback
+    def _add_new_meters() -> None:
+        entities: list[SensorEntity] = []
+        for row in coordinator.data.get("readouts") or []:
+            serial = meter_serial(row)
+            if serial and serial not in known:
+                known.add(serial)
+                entities.append(IbokLastReadingSensor(coordinator, serial))
+                entities.append(IbokLastConsumptionSensor(coordinator, serial))
+        if entities:
+            async_add_entities(entities)
+
+    _add_new_meters()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_meters))
 
 
 def _to_float(value: Any) -> float | None:
@@ -65,8 +78,8 @@ def _readouts_for(coordinator: IbokCoordinator, serial: str) -> list[dict[str, A
     The portal does not promise an order, so they are sorted by date here
     rather than trusting the position in the list.
     """
-    for row in coordinator.data.get("readouts", []):
-        if str(row.get("numer_fabryczny") or "").strip() != serial:
+    for row in coordinator.data.get("readouts") or []:
+        if meter_serial(row) != serial:
             continue
         rows = [r for r in row.get("odczyty", []) if isinstance(r, dict)]
         return sorted(rows, key=lambda r: _to_date(r.get("do")) or date.min)
@@ -79,6 +92,7 @@ class IbokBalanceSensor(IbokEntity, SensorEntity):
     _attr_translation_key = "balance"
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_state_class = SensorStateClass.TOTAL
+    _module = "accountancy"
 
     def __init__(self, coordinator: IbokCoordinator) -> None:
         super().__init__(coordinator, "balance")
@@ -100,6 +114,7 @@ class IbokLastInvoiceSensor(IbokEntity, SensorEntity):
 
     _attr_translation_key = "last_invoice"
     _attr_device_class = SensorDeviceClass.MONETARY
+    _module = "invoices"
     # No state class. Each value is one document, not a running total, and
     # Home Assistant allows only TOTAL for money: without a reset it would read
     # a smaller next bill as a negative change in the long-term statistics.
@@ -109,8 +124,16 @@ class IbokLastInvoiceSensor(IbokEntity, SensorEntity):
         self._attr_native_unit_of_measurement = coordinator.hass.config.currency
 
     def _latest(self) -> dict[str, Any] | None:
+        """The invoice issued last, by its issue date and not its list position.
+
+        The portal does not promise an order, the same reason the readouts are
+        sorted. ``nw`` is the issue date: the portal's own label for the field
+        is InvoiceCreateDate. With no date to go by, the first one is taken.
+        """
         invoices = self.coordinator.data.get("invoices") or []
-        return invoices[0] if invoices else None
+        if not invoices:
+            return None
+        return max(invoices, key=lambda row: _to_date(row.get("nw")) or date.min)
 
     @property
     def native_value(self) -> float | None:
@@ -125,6 +148,8 @@ class IbokLastInvoiceSensor(IbokEntity, SensorEntity):
 
 class _MeterSensor(IbokEntity, SensorEntity):
     """Base for per-meter sensors."""
+
+    _module = "readouts"
 
     def __init__(self, coordinator: IbokCoordinator, serial: str, key: str) -> None:
         super().__init__(coordinator, f"{serial}_{key}", serial)

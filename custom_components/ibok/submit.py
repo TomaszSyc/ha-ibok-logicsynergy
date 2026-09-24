@@ -16,6 +16,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 
 from .api import IbokError, IbokOutcomeUnknownError
+from .coordinator import meter_serial
 
 if TYPE_CHECKING:
     from .coordinator import IbokCoordinator
@@ -63,7 +64,7 @@ def resolve_target(
         )
 
     choices = ", ".join(
-        f"{meter.get('id_wodom')} (meter {_serial(meter)}, {account.title})"
+        f"{meter.get('id_wodom')} (meter {meter_serial(meter) or '?'}, {account.title})"
         for account, meter in matches
     )
     raise ServiceValidationError(
@@ -99,6 +100,22 @@ def validate_range(meter: dict[str, Any], reading: float) -> None:
         )
 
 
+def validate_date(meter: dict[str, Any], when: date, today: date) -> None:
+    """Reject a reading date that cannot be right.
+
+    A date in the future, or one before the reading the portal already has,
+    would file the reading under the wrong period of the bill. ``do`` is the
+    date of that previous reading, the one ``sl`` holds the value of.
+    """
+    if when > today:
+        raise ServiceValidationError(f"The reading date {when} is in the future")
+    previous = dt_util.parse_date(str(meter.get("do") or "").strip())
+    if previous is not None and when < previous:
+        raise ServiceValidationError(
+            f"The reading date {when} is before the previous reading, {previous}"
+        )
+
+
 async def async_submit(
     coordinator: IbokCoordinator,
     meter_id: int,
@@ -109,9 +126,9 @@ async def async_submit(
     """Check a reading against the portal's current data, then send it.
 
     The portal is asked again right before sending instead of trusting the
-    coordinator's snapshot, which can be hours old. The allowed range and the
-    previous reading come from that answer, and fetching it also renews a
-    session that expired since the last poll.
+    coordinator's snapshot, which can be hours old. The allowed range, the
+    previous reading and its date come from that answer, and fetching it also
+    renews a session that expired since the last poll.
     """
     if reading < 0:
         raise ServiceValidationError("A meter reading cannot be negative")
@@ -130,7 +147,9 @@ async def async_submit(
         )
 
     validate_range(meter, reading)
-    when = reading_date or dt_util.now().date()
+    today = dt_util.now().date()
+    when = reading_date or today
+    validate_date(meter, when, today)
 
     try:
         await coordinator.api.async_submit_reading(
@@ -154,10 +173,6 @@ async def async_submit(
     # A real refresh: async_request_refresh is debounced and may return
     # without asking the portal at all.
     await coordinator.async_refresh()
-
-
-def _serial(meter: dict[str, Any]) -> str:
-    return str(meter.get("numer_fabryczny") or "").strip() or "?"
 
 
 def _as_float(value: Any) -> float | None:

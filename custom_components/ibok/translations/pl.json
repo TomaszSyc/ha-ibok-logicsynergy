@@ -83,7 +83,7 @@
         },
         "reading_date": {
           "name": "Data odczytu",
-          "description": "Domyślnie dzisiaj."
+          "description": "Domyślnie dzisiaj. Nie z przyszłości i nie sprzed poprzedniego odczytu."
         },
         "note": {
           "name": "Uwagi",

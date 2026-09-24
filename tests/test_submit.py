@@ -7,6 +7,8 @@ is sent, and what the user is told when the outcome is unknown.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 from fake_portal import METER, PASSWORD, USERNAME
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -16,6 +18,7 @@ from custom_components.ibok.submit import (
     Account,
     async_submit,
     resolve_target,
+    validate_date,
     validate_range,
 )
 
@@ -103,6 +106,32 @@ def test_the_minimum_itself_is_allowed() -> None:
         validate_range({"min_zakres": "45"}, 44.99)
 
 
+TODAY = date(2026, 4, 20)
+PREVIOUS = {"do": "2026-04-06"}
+
+
+def test_a_reading_dated_in_the_future_is_refused() -> None:
+    with pytest.raises(ServiceValidationError, match="future"):
+        validate_date(PREVIOUS, TODAY + timedelta(days=1), TODAY)
+
+
+def test_a_reading_dated_before_the_previous_one_is_refused() -> None:
+    """It would be filed under a period that has already been billed."""
+    with pytest.raises(ServiceValidationError, match="previous reading"):
+        validate_date(PREVIOUS, date(2026, 4, 5), TODAY)
+
+
+@pytest.mark.parametrize("when", [date(2026, 4, 6), date(2026, 4, 12), TODAY])
+def test_a_reading_dated_from_the_previous_one_to_today_is_allowed(when) -> None:
+    validate_date(PREVIOUS, when, TODAY)
+
+
+def test_without_a_previous_date_only_the_future_is_refused() -> None:
+    validate_date({}, date(2020, 1, 1), TODAY)
+    with pytest.raises(ServiceValidationError, match="future"):
+        validate_date({"do": "brak"}, TODAY + timedelta(days=1), TODAY)
+
+
 # --- submitting through a real HTTP portal ----------------------------------
 
 
@@ -161,3 +190,14 @@ async def test_an_unknown_outcome_warns_against_sending_again(
     # Not a validation error: it did go out, and the portal has it.
     assert not isinstance(info.value, ServiceValidationError)
     assert len(portal.submissions) == 1
+
+
+async def test_a_reading_dated_before_the_previous_one_is_never_sent(
+    portal, coordinator
+) -> None:
+    portal.notify = [{**METER, "do": "2026-04-06"}]
+
+    with pytest.raises(ServiceValidationError, match="previous reading"):
+        await async_submit(coordinator, 10001, 48, date(2026, 4, 5))
+
+    assert portal.submissions == []

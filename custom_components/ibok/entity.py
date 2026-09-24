@@ -22,6 +22,9 @@ class IbokEntity(CoordinatorEntity[IbokCoordinator]):
     """
 
     _attr_has_entity_name = True
+    # The portal module this entity's value comes from. Only a failure of that
+    # module makes it unavailable; None means it depends on no single module.
+    _module: str | None = None
 
     def __init__(
         self, coordinator: IbokCoordinator, key: str, meter_serial: str | None = None
@@ -46,3 +49,7 @@ class IbokEntity(CoordinatorEntity[IbokCoordinator]):
                 model="iBOK",
                 configuration_url=entry.data.get("base_url"),
             )
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._module not in self.coordinator.failed

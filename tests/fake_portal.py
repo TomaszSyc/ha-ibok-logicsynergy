@@ -44,6 +44,14 @@ class FakePortal:
         self.submissions: list[dict[str, str]] = []
         self.submission_content_types: list[str] = []
         self.notify: list[dict[str, Any]] = [dict(METER)]
+        self.readouts: list[dict[str, Any]] = []
+        self.accountancy: list[dict[str, Any]] = []
+        self.invoices: list[dict[str, Any]] = []
+        # Modules that answer HTTP 500, as a portal does when one of its
+        # back-end queries fails while the rest keep working.
+        self.broken: set[str] = set()
+        # Modules that answer only after this many seconds.
+        self.slow: dict[str, float] = {}
         self.login_status = 302
         self.login_location = "/"
         self.module_delay = 0.0
@@ -112,8 +120,16 @@ class FakePortal:
 
         if self.module_delay:
             await asyncio.sleep(self.module_delay)
+        if module in self.slow:
+            await asyncio.sleep(self.slow[module])
+        if module in self.broken:
+            return web.Response(status=500, text="Internal Server Error")
         if module == "Menu":
             return web.json_response([{"nameid": "Meters_v1"}])
-        if module == "NotifyReadout_v1":
-            return web.json_response(self.notify)
-        return web.json_response([])
+        datasets = {
+            "NotifyReadout_v1": self.notify,
+            "Readouts_v1": self.readouts,
+            "Accountancy_v4": self.accountancy,
+            "Invoices_v1": self.invoices,
+        }
+        return web.json_response(datasets.get(module, []))

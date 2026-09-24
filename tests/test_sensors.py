@@ -71,3 +71,22 @@ def test_the_invoice_is_not_recorded_as_a_running_total() -> None:
 
     assert sensor.native_value == 216.35
     assert sensor.state_class is None
+
+
+def test_the_newest_invoice_is_picked_by_its_issue_date() -> None:
+    """The portal does not promise an order, so the position proves nothing."""
+    invoices = [
+        {"nw": "2026-02-10", "brutto": "100,00"},
+        {"nw": "2026-04-12", "brutto": "150,00"},
+        {"nw": "2026-03-11", "brutto": "120,00"},
+    ]
+    sensor = IbokLastInvoiceSensor(_coordinator(invoices=invoices))
+
+    assert sensor.native_value == 150.0
+
+
+def test_invoices_without_a_date_fall_back_to_the_first() -> None:
+    invoices = [{"brutto": "100,00"}, {"brutto": "150,00"}]
+    sensor = IbokLastInvoiceSensor(_coordinator(invoices=invoices))
+
+    assert sensor.native_value == 100.0

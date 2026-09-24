@@ -61,14 +61,22 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
 - przy **dwóch kontach** każdy przycisk wysyła przez swoje konto; usługa szuka
   wodomierza we wszystkich i pyta o `config_entry_id` tylko wtedy, gdy oba konta mają
   wodomierz o tym samym identyfikatorze
+- drugie konto na tym samym portalu dostaje nazwę z numerem, np. `ibok.przyklad.pl (2)`,
+  bo inaczej oba nazywałyby tak samo każde urządzenie; nazwę wpisu można potem zmienić
 
 ## Encje
 
 - **Saldo** — z modułu rozliczeń
-- **Ostatnia faktura** — kwota brutto, z kwotą netto i VAT w atrybutach
+- **Ostatnia faktura** — kwota brutto ostatnio wystawionej faktury, z kwotą netto i VAT
+  w atrybutach
 - **Wodomierz N — stan** — ostatni odczyt zarejestrowany przez przedsiębiorstwo
 - **Wodomierz N — zużycie** — zużycie w ostatnim okresie rozliczeniowym
 - **Podaj odczyt** (przycisk) — tylko dla wodomierzy z przypisaną encją źródłową
+
+Każda encja pochodzi z jednego modułu portalu. Gdy któryś nie odpowie, niedostępne są
+tylko jego encje. Przycisk działa dalej, bo przed wysłaniem i tak pyta portal od nowa.
+Wodomierz, który pojawi się w portalu później, na przykład po wymianie, dostaje encje
+przy najbliższym odpytaniu, bez restartu.
 
 ## Podanie odczytu
 
@@ -79,7 +87,8 @@ data:
 ```
 
 `meter_id` jest potrzebne tylko wtedy, gdy odczyt można podać dla więcej niż jednego
-wodomierza. Opcjonalnie przyjmuje też `reading_date` i `note`.
+wodomierza. Opcjonalnie przyjmuje też `note` oraz `reading_date`, która nie może być
+z przyszłości ani sprzed poprzedniego odczytu.
 
 **Wysłanie nigdy nie następuje samo.** Błędny odczyt trafia na fakturę i trzeba go potem
 prostować z przedsiębiorstwem, więc wywołanie jest zawsze świadome — usługą albo

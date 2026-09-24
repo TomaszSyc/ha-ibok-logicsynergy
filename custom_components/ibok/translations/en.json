@@ -83,7 +83,7 @@
         },
         "reading_date": {
           "name": "Reading date",
-          "description": "Defaults to today."
+          "description": "Defaults to today. Neither in the future nor before the previous reading."
         },
         "note": {
           "name": "Note",

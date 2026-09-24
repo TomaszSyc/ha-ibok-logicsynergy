@@ -31,6 +31,7 @@ from .const import (
     DOMAIN,
     MIN_SCAN_INTERVAL_HOURS,
 )
+from .coordinator import meter_serial
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +78,22 @@ def normalise_address(raw: str) -> str:
     return f"https://{url.host.lower()}{port}{url.path.rstrip('/')}"
 
 
+def entry_title(host: str, taken: Iterable[str]) -> str:
+    """The new entry's title: the portal's address, numbered once it is taken.
+
+    The title names every device and entity of the account, so two accounts
+    on one portal would otherwise look identical. A login or customer number
+    would tell them apart, but would also put that identifier on every screen.
+    """
+    taken = set(taken)
+    if host not in taken:
+        return host
+    number = 2
+    while f"{host} ({number})" in taken:
+        number += 1
+    return f"{host} ({number})"
+
+
 async def _async_validate(data: dict[str, Any]) -> None:
     api = IbokApi(data[CONF_BASE_URL], data[CONF_USERNAME], data[CONF_PASSWORD])
     try:
@@ -117,7 +134,10 @@ class IbokConfigFlow(ConfigFlow, domain=DOMAIN):
                 except IbokError:
                     errors["base"] = "unknown"
                 else:
-                    return self.async_create_entry(title=host, data=user_input)
+                    title = entry_title(
+                        host, (e.title for e in self._async_current_entries())
+                    )
+                    return self.async_create_entry(title=title, data=user_input)
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER, errors=errors
@@ -221,7 +241,7 @@ class IbokOptionsFlow(OptionsFlow):
         # for them and shows the key itself. That is why the serial is in the
         # key: "source_entity_12345678" still tells you which meter it is.
         for meter in self._meters():
-            serial = str(meter.get("numer_fabryczny") or meter.get("id_wodom") or "")
+            serial = meter_serial(meter)
             if not serial:
                 continue
             key = f"{CONF_SOURCE_ENTITY_PREFIX}{serial}"

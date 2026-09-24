@@ -9,7 +9,7 @@ from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfVolume
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
@@ -17,7 +17,7 @@ from homeassistant.util.unit_conversion import VolumeConverter
 
 from . import IbokConfigEntry
 from .const import CONF_SOURCE_ENTITY_PREFIX, DOMAIN
-from .coordinator import IbokCoordinator
+from .coordinator import IbokCoordinator, meter_serial
 from .entity import IbokEntity
 from .submit import async_submit
 
@@ -142,14 +142,25 @@ async def async_setup_entry(
     # A button appears only for meters that have a source entity assigned. A
     # household with a garden sub-meter typically automates one and reads the
     # other off the dial, so the buttons are decided per meter, not per account.
-    entities = []
-    for meter in coordinator.submittable_meters:
-        if meter.get("id_wodom") is None:
-            continue
-        serial = str(meter.get("numer_fabryczny") or meter["id_wodom"])
-        if entry.options.get(f"{CONF_SOURCE_ENTITY_PREFIX}{serial}"):
-            entities.append(IbokSubmitButton(coordinator, meter))
-    async_add_entities(entities)
+    # Checked on every update, like the meter sensors: a meter the portal lists
+    # only later still gets its button without a restart.
+    known: set[str] = set()
+
+    @callback
+    def _add_new_buttons() -> None:
+        entities = []
+        for meter in coordinator.submittable_meters:
+            serial = meter_serial(meter)
+            if meter.get("id_wodom") is None or serial in known:
+                continue
+            if entry.options.get(f"{CONF_SOURCE_ENTITY_PREFIX}{serial}"):
+                known.add(serial)
+                entities.append(IbokSubmitButton(coordinator, meter))
+        if entities:
+            async_add_entities(entities)
+
+    _add_new_buttons()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_buttons))
 
 
 class IbokSubmitButton(IbokEntity, ButtonEntity):
@@ -166,10 +177,13 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
     """
 
     _attr_translation_key = "submit_reading"
+    # Tied to no module: a press asks the portal again before sending, so one
+    # failed poll of the reading form does not have to make the button unusable.
+    _module = None
 
     def __init__(self, coordinator: IbokCoordinator, meter: dict) -> None:
         self._meter_id = int(meter["id_wodom"])
-        self._serial = str(meter.get("numer_fabryczny") or self._meter_id)
+        self._serial = meter_serial(meter)
         self._armed: Armed | None = None
         super().__init__(coordinator, f"{self._serial}_submit", self._serial)
 
