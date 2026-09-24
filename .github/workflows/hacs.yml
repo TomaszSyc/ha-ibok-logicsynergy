@@ -25,7 +25,10 @@ jobs:
     name: HACS validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # This one and hassfest below stay on their branches on purpose: they check the
+      # repository against the current rules of HACS and Home Assistant, and a pinned copy
+      # would keep passing against rules that have since changed.
       - uses: hacs/action@main
         with:
           category: integration
@@ -34,5 +37,5 @@ jobs:
     name: Home Assistant manifest validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: home-assistant/actions/hassfest@master

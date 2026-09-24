@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # Actions are pinned to commits; each bump moves the SHA and its version comment together.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

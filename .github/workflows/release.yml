@@ -12,7 +12,7 @@ jobs:
     name: Tag matches manifest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # HACS installs from the latest release, not from the branch. If the tag and
       # manifest.json disagree, HACS reports one version while the files on disk say
