@@ -132,6 +132,8 @@ prowadzi poza ten portal.
 
 ## Rozwój
 
+Zasady zgłoszeń i zmian są w [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ```bash
 pip install -r requirements-dev.txt
 pre-commit install
