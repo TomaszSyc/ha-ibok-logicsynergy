@@ -2,20 +2,11 @@
 
 from __future__ import annotations
 
-import aiohttp
-import pytest
-from fake_portal import METER, PASSWORD, USERNAME
-from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, STATE_UNAVAILABLE
+from fake_portal import METER
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ibok.api import IbokApi
-from custom_components.ibok.const import (
-    CONF_BASE_URL,
-    CONF_SOURCE_ENTITY_PREFIX,
-    DOMAIN,
-)
+from custom_components.ibok.const import DOMAIN
 
 SERIAL = METER["numer_fabryczny"]
 GARDEN = "87654321"
@@ -26,44 +17,6 @@ def _readouts(*serials: str) -> list[dict]:
         {"numer_fabryczny": s, "odczyty": [{"do": "2026-04-06", "sl": "48", "zu": "8"}]}
         for s in serials
     ]
-
-
-@pytest.fixture
-async def setup(hass, enable_custom_integrations, portal, monkeypatch):
-    """Returns a function that sets the entry up once the portal is prepared."""
-    # The integration's own cookie jar refuses cookies from a bare IP address,
-    # which is all the stand-in portal has.
-    monkeypatch.setattr(
-        "custom_components.ibok.IbokApi",
-        lambda base, user, password: IbokApi(
-            base,
-            user,
-            password,
-            session=aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)),
-        ),
-    )
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="ibok.przyklad.pl",
-        data={
-            CONF_BASE_URL: portal.base,
-            CONF_USERNAME: USERNAME,
-            CONF_PASSWORD: PASSWORD,
-        },
-        options={f"{CONF_SOURCE_ENTITY_PREFIX}{SERIAL}": "sensor.woda"},
-    )
-    entry.add_to_hass(hass)
-
-    async def _setup() -> MockConfigEntry:
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-        return entry
-
-    yield _setup
-
-    if entry.state is ConfigEntryState.LOADED:
-        await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
 
 
 def _entity_id(hass, platform: str, entry, key: str) -> str | None:
@@ -149,3 +102,66 @@ async def test_the_button_survives_a_failed_poll_of_the_reading_form(
 
     entity_id = _entity_id(hass, "button", entry, f"{SERIAL}_submit")
     assert hass.states.get(entity_id).state != STATE_UNAVAILABLE
+
+
+METER_ROW = {
+    "numer_fabr": SERIAL,
+    "procent_w": "100",
+    "procent_k": "100",
+    "leg_do": "2031-12-31",
+    "ew_prz": "2025-06-01",
+}
+PRICED_INVOICE = {
+    "nw": "2026-04-10",
+    "nt": "2026-04-24",
+    "brutto": "150,00",
+    "pw": [
+        {
+            "poz": [
+                {"pn": "Dostawa wody", "pj": "m3", "pc": "6,00", "pt": "8%"},
+                {"pn": "Odprowadzanie ścieków", "pj": "m3", "pc": "10,00", "pt": "8%"},
+            ]
+        }
+    ],
+}
+
+
+async def test_each_meter_gets_its_price_and_legalisation(hass, portal, setup) -> None:
+    portal.readouts = _readouts(SERIAL)
+    portal.meters = [METER_ROW]
+    portal.invoices = [PRICED_INVOICE]
+    entry = await setup()
+    registry = er.async_get(hass)
+
+    def entity(key: str):
+        entity_id = _entity_id(hass, "sensor", entry, key)
+        return registry.async_get(entity_id), hass.states.get(entity_id)
+
+    reading, _ = entity(f"{SERIAL}_last_reading")
+    price, price_state = entity(f"{SERIAL}_price")
+    legalised, legalised_state = entity(f"{SERIAL}_legalised_until")
+    _, due_state = entity("payment_due")
+
+    assert price_state.state == "17.28"
+    assert price_state.attributes["unit_of_measurement"] == f"{hass.config.currency}/m³"
+    assert legalised_state.state == "2031-12-31"
+    assert due_state.state == "2026-04-24"
+    # One device per meter, whichever module a sensor reads from.
+    assert price.device_id == legalised.device_id == reading.device_id
+
+
+async def test_the_price_depends_on_the_meter_list_as_well(hass, portal, setup) -> None:
+    """Without the meter list the shares are unknown, so the price is too."""
+    portal.readouts = _readouts(SERIAL)
+    portal.meters = [METER_ROW]
+    portal.invoices = [PRICED_INVOICE]
+    entry = await setup()
+
+    portal.broken = {"Meters_v1"}
+    await _poll(hass, entry)
+
+    def state(key: str) -> str:
+        return hass.states.get(_entity_id(hass, "sensor", entry, key)).state
+
+    assert state(f"{SERIAL}_price") == STATE_UNAVAILABLE
+    assert state(f"{SERIAL}_last_reading") == "48.0"

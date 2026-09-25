@@ -33,7 +33,7 @@
   "options": {
     "step": {
       "init": {
-        "description": "Each `source_entity_...` field takes the entity that already holds that meter's reading; the number in the field name is the meter's serial. Setting one enables the submit button for that meter.",
+        "description": "Each `source_entity_...` field takes the entity that already holds that meter's reading; the number in the field name is the meter's serial. Leave it empty to type the reading by hand into the meter's Reading to send field instead.",
         "data": {
           "scan_interval": "Polling interval"
         },
@@ -56,11 +56,25 @@
       },
       "last_consumption": {
         "name": "Consumption"
+      },
+      "payment_due": {
+        "name": "Payment due"
+      },
+      "price": {
+        "name": "Price per m³"
+      },
+      "legalised_until": {
+        "name": "Legalised until"
       }
     },
     "button": {
       "submit_reading": {
         "name": "Submit reading"
+      }
+    },
+    "number": {
+      "typed_reading": {
+        "name": "Reading to send"
       }
     }
   },
@@ -95,6 +109,12 @@
   "exceptions": {
     "press_again_to_send": {
       "message": "Nothing was sent. Press again within {seconds} s to report {reading} m³ for meter {serial} (iBOK id {meter_id})."
+    },
+    "type_reading_first": {
+      "message": "Type the meter reading into Reading to send first, then press again."
+    },
+    "typed_reading_stale": {
+      "message": "The reading was typed more than a day ago. Type it again before sending."
     }
   }
 }

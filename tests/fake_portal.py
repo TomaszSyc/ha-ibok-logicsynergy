@@ -45,6 +45,7 @@ class FakePortal:
         self.submission_content_types: list[str] = []
         self.notify: list[dict[str, Any]] = [dict(METER)]
         self.readouts: list[dict[str, Any]] = []
+        self.meters: list[dict[str, Any]] = []
         self.accountancy: list[dict[str, Any]] = []
         self.invoices: list[dict[str, Any]] = []
         # Modules that answer HTTP 500, as a portal does when one of its
@@ -129,6 +130,7 @@ class FakePortal:
         datasets = {
             "NotifyReadout_v1": self.notify,
             "Readouts_v1": self.readouts,
+            "Meters_v1": self.meters,
             "Accountancy_v4": self.accountancy,
             "Invoices_v1": self.invoices,
         }

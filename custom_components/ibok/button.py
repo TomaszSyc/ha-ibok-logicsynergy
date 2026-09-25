@@ -1,23 +1,24 @@
-"""Button that submits the configured source entity's reading."""
+"""Button that submits a meter reading, from a source entity or typed by hand."""
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
-from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfVolume
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import VolumeConverter
 
 from . import IbokConfigEntry
+from .api import IbokOutcomeUnknownError
 from .const import CONF_SOURCE_ENTITY_PREFIX, DOMAIN
-from .coordinator import IbokCoordinator, meter_serial
+from .coordinator import IbokCoordinator, fraction_digits, meter_serial
 from .entity import IbokEntity
 from .submit import async_submit
 
@@ -134,17 +135,37 @@ def source_reading(state: State | None, now: datetime) -> float:
     return cubic_metres
 
 
+def typed_reading(typed: tuple[float, datetime] | None, now: datetime) -> float:
+    """The reading typed into the meter's field, or refuse it.
+
+    Refused a day after it was typed, like a source that went silent: a value
+    typed and forgotten last month must not go out as this month's reading.
+    """
+    if typed is None:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="type_reading_first"
+        )
+    value, typed_at = typed
+    if now - typed_at > MAX_SOURCE_AGE:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="typed_reading_stale"
+        )
+    return value
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: IbokConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
 
-    # A button appears only for meters that have a source entity assigned. A
-    # household with a garden sub-meter typically automates one and reads the
-    # other off the dial, so the buttons are decided per meter, not per account.
+    # Every meter the portal accepts a reading for gets a button. With a source
+    # entity assigned it sends that entity's value; without one, what was typed
+    # into the meter's field. A household with a garden sub-meter typically
+    # automates one and reads the other off the dial, so this is per meter.
     # Checked on every update, like the meter sensors: a meter the portal lists
     # only later still gets its button without a restart.
     known: set[str] = set()
+    registry = er.async_get(hass)
 
     @callback
     def _add_new_buttons() -> None:
@@ -153,9 +174,10 @@ async def async_setup_entry(
             serial = meter_serial(meter)
             if meter.get("id_wodom") is None or serial in known:
                 continue
+            known.add(serial)
             if entry.options.get(f"{CONF_SOURCE_ENTITY_PREFIX}{serial}"):
-                known.add(serial)
-                entities.append(IbokSubmitButton(coordinator, meter))
+                _show_if_hidden_by_us(registry, f"{entry.entry_id}_{serial}_submit")
+            entities.append(IbokSubmitButton(coordinator, meter))
         if entities:
             async_add_entities(entities)
 
@@ -163,8 +185,20 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(_add_new_buttons))
 
 
+def _show_if_hidden_by_us(registry: er.EntityRegistry, unique_id: str) -> None:
+    """Show a button hidden while it waited for a typed reading.
+
+    With a source entity it is the button it always was. Only the integration's
+    own hiding is undone; one hidden by the user stays hidden.
+    """
+    entity_id = registry.async_get_entity_id("button", DOMAIN, unique_id)
+    registered = registry.async_get(entity_id) if entity_id else None
+    if registered and registered.hidden_by is er.RegistryEntryHider.INTEGRATION:
+        registry.async_update_entity(registered.entity_id, hidden_by=None)
+
+
 class IbokSubmitButton(IbokEntity, ButtonEntity):
-    """Sends the current value of the source entity as a meter reading.
+    """Sends a meter reading: the source entity's value, or the typed one.
 
     A press is confirmed by a second press. Home Assistant has no confirmation
     for a button entity -- the dialog a dashboard card can show is a property
@@ -179,20 +213,30 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
     _attr_translation_key = "submit_reading"
     # Tied to no module: a press asks the portal again before sending, so one
     # failed poll of the reading form does not have to make the button unusable.
-    _module = None
+    _modules = ()
 
     def __init__(self, coordinator: IbokCoordinator, meter: dict) -> None:
         self._meter_id = int(meter["id_wodom"])
         self._serial = meter_serial(meter)
         self._armed: Armed | None = None
         super().__init__(coordinator, f"{self._serial}_submit", self._serial)
+        # Like its field, the button for a typed reading starts hidden. With a
+        # source entity it is a deliberate setup and shows from the start.
+        source = coordinator.config_entry.options.get(
+            f"{CONF_SOURCE_ENTITY_PREFIX}{self._serial}"
+        )
+        self._attr_entity_registry_visible_default = bool(source)
 
     async def async_press(self) -> None:
         entry = self.coordinator.config_entry
         source = entry.options.get(f"{CONF_SOURCE_ENTITY_PREFIX}{self._serial}")
-        state = self.hass.states.get(source) if source else None
         now = dt_util.utcnow()
-        value = source_reading(state, now)
+        if source:
+            value = source_reading(self.hass.states.get(source), now)
+        else:
+            value = typed_reading(
+                self.coordinator.typed_readings.get(self._meter_id), now
+            )
         user_id = self._context.user_id if self._context else None
 
         decision, reading = plan_press(
@@ -217,17 +261,29 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
 
         self._armed = None
 
-        # This button's own coordinator, not a lookup through the service: with
-        # two accounts the service has to guess which one is meant, while the
-        # button already knows. Validation stays in one place either way.
-        await async_submit(self.coordinator, self._meter_id, reading)
+        # The field empties before sending, not after: sending and the refresh
+        # behind it take several requests, and a press in the meantime would
+        # otherwise announce and send the same value again. It comes back only
+        # when nothing reached the portal.
+        typed = (
+            None
+            if source
+            else self.coordinator.typed_readings.pop(self._meter_id, None)
+        )
+        if typed:
+            self.coordinator.async_update_listeners()
+        try:
+            # This button's own coordinator, not a lookup through the service:
+            # with two accounts the service has to guess which one is meant,
+            # while the button already knows. Validation stays in one place.
+            await async_submit(self.coordinator, self._meter_id, reading)
+        except HomeAssistantError as err:
+            if typed and not isinstance(err.__cause__, IbokOutcomeUnknownError):
+                self.coordinator.typed_readings.setdefault(self._meter_id, typed)
+                self.coordinator.async_update_listeners()
+            raise
 
     @property
     def fraction_digits(self) -> int:
         """Fractional digits the portal declares for this meter."""
-        meter: dict[str, Any] | None = self.coordinator.meter_by_id(self._meter_id)
-        value = (meter or {}).get("l_cyfr_p")
-        try:
-            return max(0, int(value))
-        except (TypeError, ValueError):
-            return 0
+        return fraction_digits(self.coordinator.meter_by_id(self._meter_id))

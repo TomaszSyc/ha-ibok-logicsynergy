@@ -33,7 +33,7 @@
   "options": {
     "step": {
       "init": {
-        "description": "Pola `source_entity_...` przyjmują encję, która trzyma stan danego wodomierza; liczba w nazwie pola to jego numer fabryczny. Wskazanie encji włącza dla tego wodomierza przycisk podania odczytu.",
+        "description": "Pola `source_entity_...` przyjmują encję, która trzyma stan danego wodomierza; liczba w nazwie pola to jego numer fabryczny. Bez wskazanej encji stan wpisuje się ręcznie w polu Odczyt do wysłania przy wodomierzu.",
         "data": {
           "scan_interval": "Częstotliwość odpytywania"
         },
@@ -56,11 +56,25 @@
       },
       "last_consumption": {
         "name": "Zużycie"
+      },
+      "payment_due": {
+        "name": "Termin płatności"
+      },
+      "price": {
+        "name": "Cena za m³"
+      },
+      "legalised_until": {
+        "name": "Legalizacja do"
       }
     },
     "button": {
       "submit_reading": {
         "name": "Podaj odczyt"
+      }
+    },
+    "number": {
+      "typed_reading": {
+        "name": "Odczyt do wysłania"
       }
     }
   },
@@ -95,6 +109,12 @@
   "exceptions": {
     "press_again_to_send": {
       "message": "Nic nie wysłano. Naciśnij ponownie w ciągu {seconds} s, aby zgłosić {reading} m³ dla wodomierza {serial} (ID iBOK {meter_id})."
+    },
+    "type_reading_first": {
+      "message": "Najpierw wpisz stan licznika w polu Odczyt do wysłania, potem naciśnij ponownie."
+    },
+    "typed_reading_stale": {
+      "message": "Odczyt wpisano ponad dobę temu. Wpisz go ponownie przed wysłaniem."
     }
   }
 }

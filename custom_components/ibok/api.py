@@ -272,6 +272,11 @@ class IbokApi:
     async def async_invoices(self) -> list[dict[str, Any]]:
         return _as_list(await self.async_module(MODULE_INVOICES))
 
+    async def async_menu(self) -> list[str]:
+        """Names of the modules this portal offers, as its own menu lists them."""
+        rows = _as_list(await self.async_module(MODULE_MENU))
+        return [str(row["nameid"]) for row in rows if row.get("nameid")]
+
     async def async_submit_reading(
         self,
         meter_id: int,

@@ -33,3 +33,12 @@ body:
         Ustawienia → System → Logi, filtr `ibok`. Przejrzyj przed wklejeniem —
         logi potrafią zawierać adres i numer wodomierza.
       render: text
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostyka
+      description: >
+        Opcjonalnie. Ustawienia → Urządzenia i usługi → iBOK → ⋮ → Pobierz
+        diagnostykę, a potem wklej zawartość pliku. Wartości z portalu są w niej
+        zamaskowane, więc nie trzeba niczego wycinać.
+      render: json

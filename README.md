@@ -42,9 +42,11 @@ Ręcznie: HACS → Integracje → ⋮ → Własne repozytoria → dodaj to repo 
 
 W opcjach ustawia się częstotliwość odpytywania (domyślnie 6 h) oraz — **osobno dla
 każdego wodomierza** — encję ze stanem licznika. Pola noszą nazwy złożone z numeru
-fabrycznego, na przykład `source_entity_12345678`. Wskazanie encji jest opcjonalne
-i włącza przycisk dla tego jednego wodomierza; kto spisuje stan z tarczy, korzysta
-z usługi i nie traci nic poza przyciskiem.
+fabrycznego, na przykład `source_entity_12345678`. Wskazanie encji jest opcjonalne:
+bez niej wodomierz dostaje pole **Odczyt do wysłania**, do którego wpisuje się stan
+z tarczy. To pole i jego przycisk są na początku ukryte, bo większość osób podaje odczyt
+w portalu: znajdziesz je na stronie urządzenia wśród ukrytych encji i odkryjesz jednym
+przełącznikiem albo dodasz do panelu.
 
 ### Kilka wodomierzy
 
@@ -54,7 +56,8 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
 - każdy wodomierz dostaje **własne urządzenie** z własnymi encjami stanu i zużycia
 - encję źródłową przypisuje się **do konkretnego wodomierza**, więc stan domowego nie
   zostanie wysłany jako odczyt ogrodowego
-- przycisk pojawia się tylko przy tych wodomierzach, którym przypisano encję
+- każdy wodomierz ma własny przycisk: z przypisaną encją wysyła jej wartość, bez niej
+  to, co wpisano w jego polu **Odczyt do wysłania**
 - w usłudze `ibok.submit_reading` trzeba wtedy podać `meter_id` — bez niego integracja
   odmawia wysłania i wypisuje dostępne identyfikatory razem z numerami fabrycznymi,
   zamiast zgadywać
@@ -69,14 +72,31 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
 - **Saldo** — z modułu rozliczeń
 - **Ostatnia faktura** — kwota brutto ostatnio wystawionej faktury, z kwotą netto i VAT
   w atrybutach
+- **Termin płatności** — do kiedy zapłacić ostatnią fakturę
 - **Wodomierz N — stan** — ostatni odczyt zarejestrowany przez przedsiębiorstwo
 - **Wodomierz N — zużycie** — zużycie w ostatnim okresie rozliczeniowym
-- **Podaj odczyt** (przycisk) — tylko dla wodomierzy z przypisaną encją źródłową
+- **Wodomierz N — cena za m³** — woda i ścieki brutto z ostatniej faktury, w takiej
+  części, w jakiej przedsiębiorstwo rozlicza ten wodomierz
+- **Wodomierz N — legalizacja do** — do kiedy licznik jest legalny; najpóźniej wtedy
+  przedsiębiorstwo go wymieni
+- **Odczyt do wysłania** (pole) — tylko przy wodomierzach bez encji źródłowej; tu wpisuje
+  się stan z tarczy; domyślnie ukryte
+- **Podaj odczyt** (przycisk) — wysyła wartość encji źródłowej albo wpisaną w polu; bez
+  encji źródłowej domyślnie ukryty
 
 Każda encja pochodzi z jednego modułu portalu. Gdy któryś nie odpowie, niedostępne są
 tylko jego encje. Przycisk działa dalej, bo przed wysłaniem i tak pyta portal od nowa.
 Wodomierz, który pojawi się w portalu później, na przykład po wymianie, dostaje encje
 przy najbliższym odpytaniu, bez restartu.
+
+### Koszt wody w panelu Energii
+
+W konfiguracji panelu Energii, w części o zużyciu wody, dodaj jako źródło encję ze stanem
+licznika (nakładkę radiową albo **Wodomierz N — stan**), a jako cenę wskaż **Wodomierz N
+— cena za m³**. Cena pochodzi z pozycji faktury rozliczanych za m³, więc nowa taryfa
+pojawi się z pierwszą fakturą według niej. Opłaty stałe, naliczane za miesiąc, do niej
+nie wchodzą. Jeśli przedsiębiorstwo nie nalicza ścieków za wodomierz ogrodowy, jego cena
+obejmuje samą wodę.
 
 ## Podanie odczytu
 
@@ -125,6 +145,11 @@ Potwierdzić może tylko ta sama osoba, która dostała komunikat, i nie w tej s
 podwójne kliknięcie niczego nie wyśle. Wartość encji źródłowej jest przeliczana z jej
 jednostki na m³, a gdy encja nie odzywa się od ponad doby, przycisk odmawia: martwa
 nakładka pokazuje ostatni stan, który wyglądałby jak dzisiejszy.
+
+Bez encji źródłowej wpisujesz stan z tarczy w polu **Odczyt do wysłania** i naciskasz
+przycisk dwa razy, jak wyżej. Wpis jest ważny przez dobę i nie przetrwa restartu, żeby
+zapomniany odczyt z zeszłego miesiąca nie poszedł jako dzisiejszy. Po wysłaniu pole się
+czyści.
 
 ## Odpytywanie
 

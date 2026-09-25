@@ -27,3 +27,12 @@ body:
         Które encje się pojawiły, czy udało się podać odczyt. Moduły bywają
         wyłączane przez przedsiębiorstwo i wtedy zwracają pustą odpowiedź —
         to nie jest błąd integracji.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostyka
+      description: >
+        Opcjonalnie. Ustawienia → Urządzenia i usługi → iBOK → ⋮ → Pobierz
+        diagnostykę, a potem wklej zawartość pliku. Wartości z portalu są w niej
+        zamaskowane, więc nie trzeba niczego wycinać.
+      render: json

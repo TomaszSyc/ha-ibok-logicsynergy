@@ -37,7 +37,7 @@ from .submit import Account, async_submit, resolve_target
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON, Platform.NUMBER]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 

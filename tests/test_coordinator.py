@@ -14,7 +14,13 @@ from custom_components.ibok.const import CONF_BASE_URL, DOMAIN
 from custom_components.ibok.coordinator import IbokCoordinator, meter_serial
 
 INVOICE = {"nw": "2026-04-12", "brutto": "150,00"}
-EVERY_MODULE = {"Readouts_v1", "NotifyReadout_v1", "Accountancy_v4", "Invoices_v1"}
+EVERY_MODULE = {
+    "Readouts_v1",
+    "NotifyReadout_v1",
+    "Meters_v1",
+    "Accountancy_v4",
+    "Invoices_v1",
+}
 
 
 def _coordinator(hass, portal, http_session, password=PASSWORD) -> IbokCoordinator:
@@ -75,6 +81,7 @@ async def test_an_unreachable_portal_is_given_up_at_once(coordinator) -> None:
     for name in (
         "async_readouts",
         "async_notify_readout",
+        "async_meters",
         "async_accountancy",
         "async_invoices",
     ):
@@ -103,13 +110,6 @@ async def test_a_rejected_password_asks_for_it_again(
         await coordinator._async_update_data()
 
 
-async def test_the_meters_module_is_not_asked_for(portal, coordinator) -> None:
-    """No entity uses it, and every poll it cost a request and a way to fail."""
-    await coordinator.async_refresh()
-
-    assert not any("Meters_v1" in url for _, url in portal.requests)
-
-
 async def test_a_failing_module_is_reported_once(portal, coordinator, caplog) -> None:
     """A warning when it stops, one line when it is back, nothing every poll."""
     portal.broken = {"Invoices_v1"}
@@ -134,6 +134,8 @@ async def test_a_failing_module_is_reported_once(portal, coordinator, caplog) ->
         ({"numer_fabryczny": "", "id_wodom": 10001}, "10001"),
         # A readouts row has no id to fall back on.
         ({"numer_fabryczny": None}, ""),
+        # The meter list spells the field differently.
+        ({"numer_fabr": " 12345678"}, "12345678"),
     ],
 )
 def test_meter_serial(row: dict, serial: str) -> None:

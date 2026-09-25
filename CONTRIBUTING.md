@@ -21,6 +21,10 @@ identyfikatorów w iBOK, numeru klienta ani umowy, stanów liczników ani kwot z
 W logach zamień je na zmyślone wartości, np. `12345678`. Adres portalu jest potrzebny
 i może zostać.
 
+Diagnostykę integracji (Ustawienia → Urządzenia i usługi → iBOK → ⋮ → Pobierz
+diagnostykę) możesz dołączyć w całości. Login i hasło są w niej usunięte, a wszystkie
+dane z portalu zamaskowane: zostają tylko nazwy pól i to, jak zapisane są wartości.
+
 ## Zmiany w kodzie
 
 Przy większej zmianie najpierw załóż propozycję, żeby nie pisać czegoś, czego nie przyjmę.
