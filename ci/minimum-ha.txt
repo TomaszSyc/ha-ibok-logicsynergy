@@ -4,6 +4,6 @@
 # file in a second job to prove the integration still loads on that minimum. It lives
 # outside the requirements-*.txt Dependabot scans, so these pins stay at that oldest
 # release instead of drifting up with the rest.
-pytest-homeassistant-custom-component==0.13.305
+pytest-homeassistant-custom-component==0.13.367
 pytest==9.0.0
 homeassistant==2026.1.0
