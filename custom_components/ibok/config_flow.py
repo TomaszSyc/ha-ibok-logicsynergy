@@ -6,6 +6,7 @@ import logging
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import (
     ConfigEntry,
@@ -14,8 +15,9 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from yarl import URL
 
 from .api import (
@@ -94,8 +96,15 @@ def entry_title(host: str, taken: Iterable[str]) -> str:
     return f"{host} ({number})"
 
 
-async def _async_validate(data: dict[str, Any]) -> None:
-    api = IbokApi(data[CONF_BASE_URL], data[CONF_USERNAME], data[CONF_PASSWORD])
+async def _async_validate(hass: HomeAssistant, data: dict[str, Any]) -> None:
+    # A jar of its own, so trying these credentials cannot touch the cookies
+    # of an account that is already set up.
+    api = IbokApi(
+        data[CONF_BASE_URL],
+        data[CONF_USERNAME],
+        data[CONF_PASSWORD],
+        session=async_create_clientsession(hass, cookie_jar=aiohttp.CookieJar()),
+    )
     try:
         await api.async_login()
     finally:
@@ -124,7 +133,7 @@ class IbokConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
 
                 try:
-                    await _async_validate(user_input)
+                    await _async_validate(self.hass, user_input)
                 except IbokAuthError:
                     errors["base"] = "invalid_auth"
                 except IbokResponseError:
@@ -155,7 +164,7 @@ class IbokConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             data = {**entry.data, CONF_PASSWORD: user_input[CONF_PASSWORD]}
             try:
-                await _async_validate(data)
+                await _async_validate(self.hass, data)
             except IbokAuthError:
                 errors["base"] = "invalid_auth"
             except IbokError:

@@ -27,3 +27,69 @@ jobs:
             echo "::error::tag $tag does not match manifest version $manifest"
             exit 1
           fi
+
+  test:
+    name: Ruff and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # Home Assistant 2026.9 requires >= 3.14.
+          python-version: "3.14"
+
+      - name: Install tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check --output-format=github .
+
+      - name: Formatting
+        run: ruff format --check --diff .
+
+      - name: Tests
+        run: pytest tests/ -q
+
+  publish:
+    name: Publish release
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A tag push can leave the tag as lightweight in this clone even when it was pushed
+      # annotated -- fetch it explicitly so its annotation (the release notes) is actually here.
+      - name: Fetch the tag with its annotation
+        shell: bash
+        run: git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+
+      # A lightweight tag (created without -a) points straight at a commit, and
+      # %(contents) then prints that commit's message instead of nothing. So the object
+      # type is checked first: only an annotated tag carries notes written for the release.
+      - name: Read the tag's notes
+        shell: bash
+        run: |
+          kind=$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")
+          if [ "$kind" != "tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME is not annotated; recreate it with git tag -a"
+            exit 1
+          fi
+          git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents)' > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::tag $GITHUB_REF_NAME has an empty message; recreate it with git tag -a"
+            exit 1
+          fi
+
+      - name: Publish the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A tag with a pre-release part (v1.0.0-beta.1) is published as a pre-release, which
+        # HACS offers only to those who switched on beta versions for this repository.
+        run: |
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md "${prerelease[@]}"

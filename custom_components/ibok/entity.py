@@ -16,9 +16,10 @@ class IbokEntity(CoordinatorEntity[IbokCoordinator]):
     a device of its own, so a household with a garden sub-meter sees two clearly
     separated groups rather than one list where the serial is the only clue.
 
-    The devices are deliberately not linked with ``via_device``: that parameter
-    was dropped from DeviceInfo in Home Assistant 2026.8 and raises at runtime
-    in 2026.9, which is exactly how the Tauron integration lost an entity.
+    The devices are deliberately not linked with ``via_device``: it is deprecated
+    on ``DeviceInfo``, with removal scheduled for Home Assistant 2027.8.0 (see
+    ``homeassistant/helpers/device_registry.py``), so nothing here should be built
+    on it now.
     """
 
     _attr_has_entity_name = True

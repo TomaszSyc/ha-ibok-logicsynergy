@@ -11,6 +11,7 @@ from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.ibok.api import IbokOutcomeUnknownError
 from custom_components.ibok.button import typed_reading
@@ -93,6 +94,20 @@ async def test_a_typed_reading_goes_out_on_the_second_press(
     # The field empties, so the same value cannot go out twice.
     field = _entity_id(hass, "number", entry, "typed_reading")
     assert hass.states.get(field).state == STATE_UNKNOWN
+
+
+async def test_the_announcement_shows_the_age(
+    hass, portal, setup, hass_admin_user, freezer
+) -> None:
+    entry = await setup(options={})
+    await _type(hass, entry, 48)
+
+    freezer.tick(timedelta(minutes=3))
+    with pytest.raises(ServiceValidationError) as info:
+        await _press(hass, entry, hass_admin_user)
+
+    assert info.value.translation_key == "press_again_to_send"
+    assert info.value.translation_placeholders["age"] == "3 min"
 
 
 async def _send(hass, entry, user, freezer) -> None:
@@ -188,8 +203,10 @@ async def test_a_send_with_an_unknown_outcome_empties_the_field(
 async def test_not_a_number_is_refused(hass, portal, setup) -> None:
     entry = await setup(options={})
 
-    with pytest.raises(ServiceValidationError):
+    with pytest.raises(ServiceValidationError) as info:
         await _type(hass, entry, float("nan"))
+
+    assert info.value.translation_key == "invalid_reading"
 
     field = _entity_id(hass, "number", entry, "typed_reading")
     assert hass.states.get(field).state == STATE_UNKNOWN
@@ -293,3 +310,102 @@ async def test_a_button_the_user_hid_stays_hidden(hass, portal, setup) -> None:
     await hass.async_block_till_done()
 
     assert er.async_get(hass).async_get(button).hidden_by is er.RegistryEntryHider.USER
+
+
+async def test_the_field_returns_visible_next_to_a_visible_button(
+    hass, portal, setup
+) -> None:
+    """A field left hidden once a source unhid its button would look broken."""
+    entry = await setup(options={})
+
+    hass.config_entries.async_update_entry(
+        entry, options={f"{CONF_SOURCE_ENTITY_PREFIX}{SERIAL}": "sensor.woda"}
+    )
+    await hass.async_block_till_done()
+    assert _registered(hass, entry, "button", "submit").hidden_by is None
+
+    hass.config_entries.async_update_entry(entry, options={})
+    await hass.async_block_till_done()
+
+    assert _registered(hass, entry, "number", "typed_reading").hidden_by is None
+
+
+async def test_the_field_returns_hidden_next_to_a_hidden_button(
+    hass, portal, setup
+) -> None:
+    entry = await setup(options={})
+    button = _entity_id(hass, "button", entry, "submit")
+    er.async_get(hass).async_update_entity(button, hidden_by=er.RegistryEntryHider.USER)
+
+    hass.config_entries.async_update_entry(
+        entry, options={f"{CONF_SOURCE_ENTITY_PREFIX}{SERIAL}": "sensor.woda"}
+    )
+    await hass.async_block_till_done()
+
+    hass.config_entries.async_update_entry(entry, options={})
+    await hass.async_block_till_done()
+
+    assert _registered(hass, entry, "number", "typed_reading").hidden_by is not None
+
+
+async def test_a_reload_does_not_show_a_field_the_user_hid(hass, portal, setup) -> None:
+    """A plain reload must leave a field nobody removed exactly as it was."""
+    entry = await setup(options={})
+    button = _entity_id(hass, "button", entry, "submit")
+    er.async_get(hass).async_update_entity(button, hidden_by=None)
+    field = _entity_id(hass, "number", entry, "typed_reading")
+    er.async_get(hass).async_update_entity(field, hidden_by=er.RegistryEntryHider.USER)
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    hider = _registered(hass, entry, "number", "typed_reading").hidden_by
+    assert hider is er.RegistryEntryHider.USER
+
+
+async def test_a_reload_does_not_hide_a_field_the_user_showed(
+    hass, portal, setup
+) -> None:
+    entry = await setup(options={})
+    field = _entity_id(hass, "number", entry, "typed_reading")
+    er.async_get(hass).async_update_entity(field, hidden_by=None)
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert _registered(hass, entry, "number", "typed_reading").hidden_by is None
+
+
+# --- expiry -------------------------------------------------------------------
+
+
+async def test_the_field_empties_after_a_day(
+    hass, portal, setup, hass_admin_user, freezer
+) -> None:
+    entry = await setup(options={})
+    await _type(hass, entry, 48)
+
+    freezer.tick(timedelta(hours=24, seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    field = _entity_id(hass, "number", entry, "typed_reading")
+    assert hass.states.get(field).state == STATE_UNKNOWN
+
+
+async def test_the_field_empties_when_its_timer_fires_on_the_dot(
+    hass, portal, setup, hass_admin_user, freezer
+) -> None:
+    """The timer runs out at exactly a day, when the value is not yet too old."""
+    entry = await setup(options={})
+    await _type(hass, entry, 48)
+
+    freezer.tick(timedelta(hours=24))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    field = _entity_id(hass, "number", entry, "typed_reading")
+    assert hass.states.get(field).state == STATE_UNKNOWN

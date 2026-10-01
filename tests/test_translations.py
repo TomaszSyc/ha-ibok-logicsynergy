@@ -4,6 +4,7 @@ A missing key does not fail anywhere at runtime -- Home Assistant quietly shows
 the raw key instead, which is the kind of defect nobody reports.
 """
 
+import ast
 import json
 from pathlib import Path
 
@@ -28,6 +29,117 @@ def test_translations_match_strings() -> None:
             f"{path.name} differs from strings.json: "
             f"missing={sorted(expected - actual)} extra={sorted(actual - expected)}"
         )
+
+
+# Keys that must be found; if the collector below stops seeing any of them, it
+# has gone blind to a way keys are passed, and the check would pass on nothing.
+_MUST_FIND = {
+    "press_again_to_send",
+    "submit_in_progress",
+    "reading_already_sent",
+    "invalid_reading",
+    "reading_below_min",
+    "meter_serial_changed",
+    "precision_changed_press_again",
+    "outcome_unknown",
+    "nothing_recorded",
+    "nothing_sent_check_failed",
+    "several_meters",
+    "no_account",
+}
+
+
+def _functions(tree: ast.AST):
+    """Every function with the parameter names it takes, in call order."""
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args
+            positional = [a.arg for a in [*args.posonlyargs, *args.args]]
+            yield node, positional, {a.arg for a in args.kwonlyargs}
+
+
+def _translation_keys() -> tuple[set[str], list[str]]:
+    """Every translation key the code raises, and every one it cannot resolve.
+
+    Read from the syntax tree, not by pattern: a key can reach
+    ``translation_key=`` directly or through a helper that forwards one of its
+    own parameters, possibly through another helper. Such helpers are found,
+    not listed, so one added later is covered too. Anything else -- a key built
+    at runtime, a variable -- is reported as unresolved and fails the test,
+    rather than being skipped.
+    """
+    trees = {
+        path.name: ast.parse(path.read_text(encoding="utf-8"))
+        for path in ROOT.glob("*.py")
+    }
+    used: set[str] = set()
+    unresolved: list[str] = []
+    # helper name -> (position of the forwarded parameter or None, its name)
+    helpers: dict[str, tuple[int | None, str]] = {}
+
+    def resolve(value: ast.expr, where: str, enclosing) -> None:
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            used.add(value.value)
+            return
+        if enclosing is not None and isinstance(value, ast.Name):
+            func, positional, keyword_only = enclosing
+            if value.id in positional or value.id in keyword_only:
+                index = positional.index(value.id) if value.id in positional else None
+                helpers.setdefault(func.name, (index, value.id))
+                return
+        unresolved.append(f"{where}: {ast.unparse(value)}")
+
+    def enclosing_of(tree):
+        parents = {}
+        for fn in _functions(tree):
+            for child in ast.walk(fn[0]):
+                parents[child] = fn  # innermost wins: nested defs come later
+        return parents
+
+    # Until no new helper turns up: each round may reveal a helper that feeds
+    # another one.
+    while True:
+        known_helpers = dict(helpers)
+        used.clear()
+        unresolved.clear()
+        for name, tree in trees.items():
+            parents = enclosing_of(tree)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                where = f"{name}:{node.lineno}"
+                for kw in node.keywords:
+                    if kw.arg == "translation_key":
+                        resolve(kw.value, where, parents.get(node))
+                callee = getattr(node.func, "id", None) or getattr(
+                    node.func, "attr", None
+                )
+                if callee in known_helpers:
+                    index, param = known_helpers[callee]
+                    arg = next(
+                        (kw.value for kw in node.keywords if kw.arg == param), None
+                    )
+                    if arg is None and index is not None and index < len(node.args):
+                        arg = node.args[index]
+                    if arg is not None:
+                        resolve(arg, where, parents.get(node))
+        if helpers == known_helpers:
+            return used, unresolved
+
+
+def test_every_exception_key_is_translated() -> None:
+    """A translation_key raised in code needs a message in strings.json.
+
+    Without one the user is shown the bare key -- "meter_serial_changed" --
+    instead of what went wrong, and nothing fails until someone hits it.
+    """
+    strings = json.loads((ROOT / "strings.json").read_text(encoding="utf-8"))
+    known = set(strings.get("exceptions", {})) | set(strings.get("issues", {}))
+    used, unresolved = _translation_keys()
+
+    assert not unresolved, f"translation keys that cannot be checked: {unresolved}"
+    assert _MUST_FIND <= used, f"keys no longer found: {sorted(_MUST_FIND - used)}"
+    assert used <= known, f"untranslated keys: {sorted(used - known)}"
 
 
 def test_polish_translation_exists() -> None:

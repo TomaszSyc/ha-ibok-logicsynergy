@@ -11,11 +11,12 @@ which is why plain ``?module=<Name>`` requests return JSON rather than HTML.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable
 from decimal import ROUND_DOWN, Decimal
-from typing import Any
+from typing import Any, NamedTuple
 
 import aiohttp
 from yarl import URL
@@ -43,8 +44,24 @@ _MAX_REDIRECTS = 5
 _LOGIN_FORM = 'id="frmLogin"'
 
 
+class _Answer(NamedTuple):
+    """The portal's final answer to one request, after any redirects."""
+
+    status: int
+    body: str
+    # Whether the answer came from a page the portal redirected to, rather
+    # than from the request itself.
+    redirected: bool
+
+
 class IbokError(Exception):
     """Base error for this integration."""
+
+    # Whether the request that raised this error had already reached the
+    # portal. Set by ``_request``; ``_post_submission`` uses it to tell a
+    # submission that never left the machine from one whose outcome is
+    # simply unknown.
+    delivered = False
 
 
 class IbokConnectionError(IbokError):
@@ -101,29 +118,47 @@ class IbokApi:
         username: str,
         password: str,
         session: aiohttp.ClientSession | None = None,
+        timeout: aiohttp.ClientTimeout = _TIMEOUT,
     ) -> None:
         self._base = base_url.rstrip("/")
         self._origin = URL(self._base).origin()
         self._username = username
         self._password = password
         self._session = session
+        # Applied to every request rather than only to a session made here:
+        # Home Assistant's session carries aiohttp's default of five minutes,
+        # and a login stuck that long would hold every other request behind
+        # the login lock.
+        self._timeout = timeout
+        # A session handed in belongs to whoever made it, Home Assistant
+        # included, so only one made here is closed here.
+        self._owns_session = session is None
         self._logged_in = False
+        # One login at a time, and a count of the logins that succeeded. A
+        # request that finds the session expired logs in again only if no
+        # other request has done so since it went out; otherwise several
+        # requests failing together would each log in, and every login would
+        # throw away the session the one before it had just set up.
+        self._login_lock = asyncio.Lock()
+        self._generation = 0
 
     async def async_close(self) -> None:
         """Release the session. Called when the config entry unloads."""
-        if self._session is not None and not self._session.closed:
-            await self._session.close()
-        self._session = None
+        if self._owns_session:
+            if self._session is not None and not self._session.closed:
+                await self._session.close()
+            self._session = None
         self._logged_in = False
 
     def _ensure_session(self) -> aiohttp.ClientSession:
         # A private session, and therefore a private cookie jar: the portal
         # identifies the account purely by PHPSESSID, so sharing Home
         # Assistant's shared session would let two config entries for two
-        # different accounts overwrite each other's login.
-        if self._session is None or self._session.closed:
+        # different accounts overwrite each other's login. A session handed in
+        # is expected to come with its own jar for the same reason.
+        if self._owns_session and (self._session is None or self._session.closed):
             self._session = aiohttp.ClientSession(
-                timeout=_TIMEOUT,
+                timeout=self._timeout,
                 headers=_HEADERS,
                 cookie_jar=aiohttp.CookieJar(unsafe=False),
             )
@@ -136,7 +171,7 @@ class IbokApi:
         *,
         data: Callable[[], Any] | None = None,
         headers: dict[str, str] | None = None,
-    ) -> tuple[int, str]:
+    ) -> _Answer:
         """One request, following redirects only within the portal's origin.
 
         Redirects are followed by hand because aiohttp re-sends the body of a
@@ -146,21 +181,32 @@ class IbokApi:
 
         ``data`` is a factory rather than a value: a form has to be built again
         for every hop that re-sends it.
+
+        Every raised ``IbokError`` carries ``delivered``: whether the request
+        this call was asked to make had already reached the portal by the
+        time things went wrong. That is true from the second hop onward --
+        the first hop's response is what produced the redirect -- and true at
+        the first hop for a timeout or a broken connection, since the request
+        itself had already gone out. Only a connection refused or a connect
+        timeout on the very first hop means nothing was sent at all.
         """
         session = self._ensure_session()
         target = URL(url, encoded=True)
 
-        for _ in range(_MAX_REDIRECTS + 1):
+        for hop in range(_MAX_REDIRECTS + 1):
             if target.origin() != self._origin:
-                raise IbokResponseError(
+                err = IbokResponseError(
                     f"refused to follow a redirect away from the portal, to {target.origin()}"
                 )
+                err.delivered = hop > 0
+                raise err
             try:
                 async with session.request(
                     method,
                     target,
                     data=data() if data is not None else None,
                     headers={**_HEADERS, **(headers or {})},
+                    timeout=self._timeout,
                     allow_redirects=False,
                 ) as response:
                     location = response.headers.get("Location")
@@ -169,25 +215,69 @@ class IbokApi:
                             method, data = "GET", None
                         target = target.join(URL(location))
                         continue
-                    return response.status, await response.text()
+                    return _Answer(response.status, await response.text(), hop > 0)
             # Order matters. A refused connection and a connect timeout mean the
             # request never went out; any other failure may come after the
             # portal already has it.
             except aiohttp.ClientConnectorError as err:
-                raise IbokConnectionError(str(err)) from err
+                wrapped = IbokConnectionError(str(err))
+                wrapped.delivered = hop > 0
+                raise wrapped from err
             except aiohttp.ConnectionTimeoutError as err:
-                raise IbokConnectionError(str(err)) from err
+                wrapped = IbokConnectionError(str(err))
+                wrapped.delivered = hop > 0
+                raise wrapped from err
             except TimeoutError as err:
                 # aiohttp raises the builtin TimeoutError for a total timeout,
                 # which is not an aiohttp.ClientError.
-                raise IbokTimeoutError("the portal did not answer in time") from err
+                wrapped = IbokTimeoutError("the portal did not answer in time")
+                wrapped.delivered = True
+                raise wrapped from err
             except aiohttp.ClientError as err:
-                raise IbokDisconnectedError(str(err)) from err
+                wrapped = IbokDisconnectedError(str(err))
+                wrapped.delivered = True
+                raise wrapped from err
 
-        raise IbokResponseError("the portal redirected too many times")
+        err = IbokResponseError("the portal redirected too many times")
+        err.delivered = True
+        raise err
 
     async def async_login(self) -> None:
         """Establish a session. Raises IbokAuthError on bad credentials."""
+        async with self._login_lock:
+            await self._login()
+
+    async def _ensure_logged_in(self) -> None:
+        if self._logged_in:
+            return
+        async with self._login_lock:
+            # Another request may have logged in while this one waited.
+            if not self._logged_in:
+                await self._login()
+
+    async def _relogin(self, generation: int) -> None:
+        """Log in again after a request made at ``generation`` found the session gone."""
+        async with self._login_lock:
+            if self._generation == generation:
+                await self._login()
+
+    async def _login(self) -> None:
+        """The whole login sequence, tried a second time on a fresh cookie jar.
+
+        The live portal now and then answers a correct password with the login
+        page again. Asking for a new password then would be wrong, so a first
+        refusal only discards the session cookie and starts over; a second
+        one is taken at its word. The caller holds ``_login_lock``.
+        """
+        try:
+            await self._login_once()
+        except IbokAuthError:
+            _LOGGER.debug("The portal refused the login, trying once more")
+            self._ensure_session().cookie_jar.clear()
+            await self._login_once()
+        self._generation += 1
+
+    async def _login_once(self) -> None:
         self._logged_in = False
 
         # The login form only works once the session cookie exists.
@@ -206,11 +296,16 @@ class IbokApi:
 
         # The portal answers the login POST with a redirect and an empty body
         # whether or not the password was right, so that answer proves nothing.
-        # A module returns JSON only to a session that is logged in.
-        _status, body = await self._request(
+        # The menu does: it lists modules only to a session that is logged in,
+        # and answers any other session with an empty body -- but with HTTP
+        # 200. An error status is the portal or a proxy in front of it failing,
+        # often with no body either, and no reason to doubt the password.
+        status, body, _redirected = await self._request(
             "GET", f"{self._base}/?module={MODULE_MENU}", headers=_XHR
         )
-        if _LOGIN_FORM in body:
+        if status >= 400:
+            raise IbokResponseError(f"the portal answered the login with HTTP {status}")
+        if not body.strip() or _session_expired(body):
             raise IbokAuthError("the portal did not accept the login")
         try:
             json.loads(body)
@@ -221,12 +316,12 @@ class IbokApi:
 
     async def async_module(self, module: str) -> Any:
         """Fetch one module's dataset, logging in again if the session expired."""
-        if not self._logged_in:
-            await self.async_login()
+        await self._ensure_logged_in()
 
+        generation = self._generation
         body = await self._get_module(module)
         if body is _SESSION_EXPIRED:
-            await self.async_login()
+            await self._relogin(generation)
             body = await self._get_module(module)
             if body is _SESSION_EXPIRED:
                 # The login itself just succeeded, so this is the portal
@@ -244,10 +339,10 @@ class IbokApi:
             raise IbokResponseError(f"{module}: {err}") from err
 
     async def _get_module(self, module: str) -> Any:
-        status, body = await self._request(
+        status, body, _redirected = await self._request(
             "GET", f"{self._base}/?module={module}", headers=_XHR
         )
-        if _LOGIN_FORM in body:
+        if _session_expired(body):
             return _SESSION_EXPIRED
         if status >= 400:
             raise IbokResponseError(f"{module}: HTTP {status}")
@@ -289,8 +384,8 @@ class IbokApi:
 
         The portal's own form posts into a hidden iframe, so the HTTP status
         alone does not prove the reading was accepted. What this does establish
-        is that it was not refused outright: a login page means the session had
-        died and nothing was taken, which is the one case safe to resend.
+        is that it was not refused outright: an expired session's answer means
+        nothing was taken, which is the one case safe to resend.
         """
         whole, litres = split_reading(reading)
 
@@ -305,24 +400,31 @@ class IbokApi:
             data.add_field("txtDesc", note)
             return data
 
-        if not self._logged_in:
-            await self.async_login()
+        await self._ensure_logged_in()
 
         url = f"{self._base}/?module={MODULE_NOTIFY_READOUT}&action=add"
-        status, body = await self._post_submission(url, form)
-        if _LOGIN_FORM in body:
+        generation = self._generation
+        status, body, redirected = await self._post_submission(url, form)
+        if _not_taken(status, body, redirected):
             # The session expired since the last request -- polling leaves hours
-            # between them. The login page means the reading was not taken, so
-            # one resend on a fresh session cannot duplicate it.
-            await self.async_login()
-            status, body = await self._post_submission(url, form)
-            if _LOGIN_FORM in body:
+            # between them. An expired session's answer means the reading was
+            # not taken, so one resend on a fresh session cannot duplicate it.
+            await self._relogin(generation)
+            status, body, redirected = await self._post_submission(url, form)
+            if _not_taken(status, body, redirected):
                 raise IbokResponseError("the portal refused the submission twice")
 
-        if status >= 500:
+        # An error from a page the portal redirected to says nothing about the
+        # submission itself: the redirect was the portal's answer to it, so
+        # the reading may well be recorded.
+        if status >= 500 or (status >= 400 and redirected):
             raise IbokOutcomeUnknownError(f"the portal answered HTTP {status}")
         if status >= 400:
             raise IbokResponseError(f"the portal refused the submission: HTTP {status}")
+        if redirected and _session_expired(body):
+            raise IbokOutcomeUnknownError(
+                "the portal took the submission to a page of an expired session"
+            )
 
         # Kept at debug: this is what the first real submission has to show,
         # to learn how the portal words an accepted reading.
@@ -331,14 +433,46 @@ class IbokApi:
 
     async def _post_submission(
         self, url: str, form: Callable[[], aiohttp.FormData]
-    ) -> tuple[int, str]:
+    ) -> _Answer:
         try:
             return await self._request("POST", url, data=form)
-        except (IbokTimeoutError, IbokDisconnectedError) as err:
-            raise IbokOutcomeUnknownError(str(err)) from err
+        except IbokError as err:
+            if err.delivered:
+                raise IbokOutcomeUnknownError(str(err)) from err
+            raise
 
 
 _SESSION_EXPIRED = object()
+
+
+def _session_expired(body: str) -> bool:
+    """Whether the portal answered as it does to a session that is not logged in.
+
+    The live portal answers a module request on such a session with HTTP 200
+    and ``{"sessionExpired":true}``; it has also been seen to send the login
+    page instead. Both mean the request was not acted on.
+    """
+    if _LOGIN_FORM in body:
+        return True
+    # Checked before parsing so a module's full dataset is not parsed twice.
+    if "sessionExpired" not in body:
+        return False
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return False
+    return isinstance(data, dict) and bool(data.get("sessionExpired"))
+
+
+def _not_taken(status: int, body: str, redirected: bool) -> bool:
+    """Whether a submission's answer proves the reading was not recorded.
+
+    Only the POST's own successful answer can say that. Behind a redirect the
+    portal had already acted on the form, and an error status says nothing
+    about how far it got, so either way the reading may be on the bill and
+    resending it could put it there twice.
+    """
+    return not redirected and status < 400 and _session_expired(body)
 
 
 def _as_list(data: Any) -> list[dict[str, Any]]:

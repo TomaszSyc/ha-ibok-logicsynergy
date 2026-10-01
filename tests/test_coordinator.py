@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pytest
 from fake_portal import METER, PASSWORD, USERNAME
@@ -11,7 +12,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ibok.api import IbokApi, IbokConnectionError
 from custom_components.ibok.const import CONF_BASE_URL, DOMAIN
-from custom_components.ibok.coordinator import IbokCoordinator, meter_serial
+from custom_components.ibok.coordinator import (
+    IbokCoordinator,
+    meter_id,
+    meter_serial,
+    parse_number,
+)
 
 INVOICE = {"nw": "2026-04-12", "brutto": "150,00"}
 EVERY_MODULE = {
@@ -28,7 +34,13 @@ def _coordinator(hass, portal, http_session, password=PASSWORD) -> IbokCoordinat
         domain=DOMAIN, title="ibok.przyklad.pl", data={CONF_BASE_URL: portal.base}
     )
     entry.add_to_hass(hass)
-    api = IbokApi(portal.base, USERNAME, password, session=http_session)
+    api = IbokApi(
+        portal.base,
+        USERNAME,
+        password,
+        session=http_session,
+        timeout=http_session.timeout,
+    )
     return IbokCoordinator(hass, entry, api)
 
 
@@ -140,3 +152,40 @@ async def test_a_failing_module_is_reported_once(portal, coordinator, caplog) ->
 )
 def test_meter_serial(row: dict, serial: str) -> None:
     assert meter_serial(row) == serial
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("1 234,56", 1234.56),
+        ("1\xa0234,56", 1234.56),
+        (" 45 ", 45.0),
+        ("abc", None),
+        (None, None),
+        (7, 7.0),
+    ],
+)
+def test_parse_number(raw, expected) -> None:
+    assert parse_number(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        ({"id_wodom": 10001}, 10001),
+        ({"id_wodom": "10001"}, 10001),
+        ({"id_wodom": "W-1"}, None),
+        ({}, None),
+    ],
+)
+def test_meter_id(row, expected) -> None:
+    assert meter_id(row) == expected
+
+
+@pytest.mark.parametrize("raw", [10001, "10001", " 10001 ", "010001"])
+def test_meter_by_id_reads_the_id_as_a_number(raw) -> None:
+    """The lookup reads an id the same way every other lookup does."""
+    row = {**METER, "id_wodom": raw}
+    coordinator = SimpleNamespace(submittable_meters=[row])
+
+    assert IbokCoordinator.meter_by_id(coordinator, 10001) is row

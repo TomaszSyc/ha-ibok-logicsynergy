@@ -25,3 +25,21 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+
+  # Same scanner and version as the CI job, just run before the commit exists instead of
+  # after it is pushed.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      # Catches values gitleaks does not know to look for -- an account or meter number
+      # from a real portal, say. The patterns themselves are not part of this repository;
+      # see CONTRIBUTING.md.
+      - id: check-denylist
+        name: check-denylist
+        entry: python3 scripts/check-denylist.py
+        language: system
+        types: [text]

@@ -8,6 +8,7 @@ from fake_portal import METER, PASSWORD, USERNAME
 
 from custom_components.ibok.api import IbokConnectionError
 from custom_components.ibok.diagnostics import (
+    _mask_option_key,
     async_get_config_entry_diagnostics,
     mask,
 )
@@ -26,12 +27,41 @@ def test_masking_keeps_the_shape_and_hides_the_values() -> None:
 
     assert mask(value) == {
         "a": "xx 99,9",
-        "b": ["9", "9", "9", "... 2 more"],
+        "b": [9, 9, 9, "... 2 more"],
         "c": None,
         "d": True,
         # A key with the serial in it is data, not a field name.
         "99999999": "x",
     }
+
+
+def test_a_serial_with_letters_is_masked_in_option_keys() -> None:
+    assert _mask_option_key("source_entity_AB123") == "source_entity_xx999"
+
+
+def test_a_short_id_is_masked() -> None:
+    assert _mask_option_key("source_entity_812") == "source_entity_999"
+
+
+def test_a_key_without_the_prefix_is_left_alone() -> None:
+    assert _mask_option_key("scan_interval") == "scan_interval"
+
+
+def test_numbers_keep_their_type() -> None:
+    assert mask({"a": 12, "b": 12.5, "c": "12.5", "d": True}) == {
+        "a": 99,
+        "b": 99.9,
+        "c": "99.9",
+        "d": True,
+    }
+
+
+def test_negative_ints_keep_their_sign() -> None:
+    assert mask(-12) == -99
+
+
+def test_a_float_with_an_exponent_still_masks() -> None:
+    assert mask(1e-05) == 9e-99
 
 
 async def test_diagnostics_hide_every_value(hass, portal, setup) -> None:

@@ -33,6 +33,24 @@ jobs:
       - name: Tests
         run: pytest tests/ -q
 
+  python-min:
+    name: Tests on minimum HA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install tooling
+        run: pip install -r ci/minimum-ha.txt
+
+      # test_pins.py compares the pins in requirements-dev.txt against the installed
+      # plugin, so it fails here on purpose -- this job installs ci/minimum-ha.txt.
+      - name: Tests
+        run: pytest tests/ -q --ignore=tests/test_pins.py
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest

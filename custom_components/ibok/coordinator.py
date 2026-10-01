@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
@@ -11,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import (
     IbokApi,
@@ -21,8 +23,49 @@ from .api import (
     IbokTimeoutError,
 )
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .ledger import SubmissionLedger
 
 _LOGGER = logging.getLogger(__name__)
+
+# id_wodom values already warned about, so a meter stuck with a bad one is not
+# logged again on every poll.
+_unusable_meter_ids: set[Any] = set()
+
+
+def parse_number(value: Any) -> float | None:
+    """A number as the portal writes it, wherever a field can hold one.
+
+    Portal numbers can carry a decimal comma and thousands separators, plain
+    space or non-breaking space alike -- ``\\s`` matches both in Python 3.
+    ``None`` and anything that still does not parse come back as ``None``: a
+    portal field is never guaranteed to hold a number.
+    """
+    if value is None:
+        return None
+    text = re.sub(r"\s", "", str(value)).replace(",", ".")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def meter_id(row: Mapping[str, Any]) -> int | None:
+    """A meter's internal id as an int, or ``None`` if the portal sent nothing usable.
+
+    ``id_wodom`` is what a submission and a lookup key on; a meter reporting
+    one that is not a plain number can still be listed and read, but nothing
+    can key on it, so it is left out wherever an id is required.
+    """
+    value = row.get("id_wodom")
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        if value not in _unusable_meter_ids:
+            _unusable_meter_ids.add(value)
+            _LOGGER.warning(
+                "Meter id %r from the portal is not a usable number, skipping it", value
+            )
+        return None
 
 
 def meter_serial(row: Mapping[str, Any]) -> str:
@@ -76,6 +119,9 @@ class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # state, whose timestamp a restart would renew: a value typed last week
         # would then look as fresh as one typed a minute ago.
         self.typed_readings: dict[int, tuple[float, datetime]] = {}
+        # One ledger per account: what has been sent today and what is
+        # still waiting on an answer from the portal.
+        self.ledger = SubmissionLedger(hass, entry.entry_id)
 
     async def _async_update_data(self) -> dict[str, Any]:
         fetchers: dict[str, Callable[[], Awaitable[Any]]] = {
@@ -122,12 +168,18 @@ class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for key in sorted(self.failed - failed):
             _LOGGER.info("The portal returns %s again", key)
         self.failed = failed
+        # A reading whose outcome was unknown may show up in this refresh.
+        self.ledger.reconcile(data, dt_util.now().date())
         return data
 
-    def meter_by_id(self, meter_id: int) -> dict[str, Any] | None:
-        """Look up a meter in the submission dataset by its internal id."""
+    def meter_by_id(self, wanted: int) -> dict[str, Any] | None:
+        """Look up a meter in the submission dataset by its internal id.
+
+        The id is read with ``meter_id``, as everywhere else, so a row whose
+        ``id_wodom`` comes padded or as a string still matches.
+        """
         for row in self.submittable_meters:
-            if str(row.get("id_wodom")) == str(meter_id):
+            if meter_id(row) == wanted:
                 return row
         return None
 

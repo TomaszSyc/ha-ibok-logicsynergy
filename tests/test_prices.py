@@ -93,6 +93,35 @@ def test_a_line_without_a_vat_rate_is_priced_net() -> None:
     assert unit_prices(_invoice("2026-04-10", line)) == {"water": 6.0}
 
 
+def test_an_unreadable_vat_makes_the_price_unknown() -> None:
+    line = {**WATER, "pt": "?"}
+
+    assert unit_prices(_invoice("2026-04-10", line)) is None
+
+
+def test_distinct_lines_of_one_kind_add_up() -> None:
+    sewage = {"pn": "Ścieki", "pj": "m3", "pc": "10,00", "pt": "8%"}
+    rainfall = {
+        "pn": "Wody opadowe odprowadzanie",
+        "pj": "m3",
+        "pc": "2,00",
+        "pt": "8%",
+    }
+
+    prices = unit_prices(_invoice("2026-04-10", sewage, rainfall))
+
+    assert prices == pytest.approx({"sewage": 12.96})
+
+
+def test_the_same_line_twice_takes_the_last() -> None:
+    first = {**WATER, "pc": "5,00"}
+    second = {**WATER, "pc": "6,00"}
+
+    prices = unit_prices(_invoice("2026-04-10", first, second))
+
+    assert prices == pytest.approx({"water": 6.48})
+
+
 def test_a_correction_without_such_lines_does_not_hide_the_price() -> None:
     """A correction invoice can be the newest and bill no cubic metres at all."""
     invoices = [
@@ -115,6 +144,28 @@ def test_the_newest_invoice_sets_the_price() -> None:
     prices, _ = current_unit_prices(invoices)
 
     assert prices["water"] == pytest.approx(7.56)
+
+
+def test_an_unreadable_vat_on_the_newest_invoice_does_not_fall_back() -> None:
+    """An older tariff is not the current price just because it is readable."""
+    invoices = [
+        _invoice("2026-04-10", {**WATER, "pc": "5,00", "pt": "8"}),
+        _invoice("2026-05-10", {**WATER, "pc": "6,00", "pt": "np."}),
+    ]
+
+    assert current_unit_prices(invoices) is None
+
+
+def test_a_correction_after_an_unreadable_invoice_does_not_revive_the_older_one() -> (
+    None
+):
+    invoices = [
+        _invoice("2026-04-10", {**WATER, "pc": "5,00"}),
+        _invoice("2026-05-10", {**WATER, "pt": "np."}),
+        _invoice("2026-05-20", *STANDING),
+    ]
+
+    assert current_unit_prices(invoices) is None
 
 
 def test_no_invoice_billing_by_the_cubic_metre_means_no_price() -> None:
@@ -154,6 +205,64 @@ def test_a_meter_missing_from_the_list_is_billed_in_full() -> None:
     assert IbokPriceSensor(coordinator, SERIAL).native_value == pytest.approx(17.28)
 
 
+def test_shares_assumed_full_when_the_list_is_empty() -> None:
+    coordinator = _coordinator([_invoice("2026-04-10", WATER, SEWAGE)])
+    sensor = IbokPriceSensor(coordinator, SERIAL)
+
+    assert sensor._shares() == (100.0, 100.0, "assumed_full")
+    assert sensor.extra_state_attributes["shares"] == "assumed_full"
+
+
+def test_price_unknown_when_the_meter_is_missing_from_a_list(caplog) -> None:
+    """A non-empty meter list that skips this serial means its shares are unknown."""
+    coordinator = _coordinator(
+        [_invoice("2026-04-10", WATER, SEWAGE)],
+        [{"numer_fabr": "87654321", "procent_w": "100", "procent_k": "100"}],
+    )
+    sensor = IbokPriceSensor(coordinator, SERIAL)
+
+    assert sensor._shares() is None
+    assert sensor.native_value is None
+    assert "shares" not in sensor.extra_state_attributes
+
+    with caplog.at_level("WARNING"):
+        _ = sensor.native_value
+        _ = sensor.native_value
+
+    warnings = [r for r in caplog.records if SERIAL in r.getMessage()]
+    assert len(warnings) == 1
+
+
+def test_price_unknown_and_warned_once_when_the_newest_vat_is_unreadable(
+    caplog,
+) -> None:
+    coordinator = _coordinator(
+        [
+            _invoice("2026-04-10", {**WATER, "pc": "5,00", "pt": "8"}),
+            _invoice("2026-05-10", {**WATER, "pc": "6,00", "pt": "np."}),
+        ]
+    )
+    sensor = IbokPriceSensor(coordinator, SERIAL)
+
+    with caplog.at_level("WARNING"):
+        assert sensor.native_value is None
+        assert "invoice_date" not in sensor.extra_state_attributes
+        # The next refresh brings the same invoices back.
+        coordinator.data = {
+            **coordinator.data,
+            "invoices": list(coordinator.data["invoices"]),
+        }
+        assert sensor.native_value is None
+        assert "water" not in sensor.extra_state_attributes
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and SERIAL in r.getMessage()
+    ]
+    assert len(warnings) == 1
+
+
 def test_the_payment_deadline_is_the_newest_invoices() -> None:
     coordinator = _coordinator(
         [
@@ -163,6 +272,18 @@ def test_the_payment_deadline_is_the_newest_invoices() -> None:
     )
 
     assert IbokPaymentDueSensor(coordinator).native_value == date(2026, 4, 24)
+
+
+def test_payment_due_skips_a_correction() -> None:
+    """A correction's gross amount can be zero and carries no due date to trust."""
+    invoices = [
+        _invoice("2026-03-10", due="2026-03-24"),
+        {**_invoice("2026-04-10", due="2026-04-24"), "brutto": "0,00"},
+    ]
+
+    assert IbokPaymentDueSensor(_coordinator(invoices)).native_value == date(
+        2026, 3, 24
+    )
 
 
 def test_the_legalisation_date_is_read_per_meter() -> None:

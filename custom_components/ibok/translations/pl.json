@@ -108,13 +108,107 @@
   },
   "exceptions": {
     "press_again_to_send": {
-      "message": "Nic nie wysłano. Naciśnij ponownie w ciągu {seconds} s, aby zgłosić {reading} m³ dla wodomierza {serial} (ID iBOK {meter_id})."
+      "message": "Nic nie wysłano. Naciśnij ponownie w ciągu {seconds} s, aby zgłosić {reading} m³ dla wodomierza {serial} (ID iBOK {meter_id}). Ostatni odczyt: {age} temu."
     },
     "type_reading_first": {
       "message": "Najpierw wpisz stan licznika w polu Odczyt do wysłania, potem naciśnij ponownie."
     },
     "typed_reading_stale": {
       "message": "Odczyt wpisano ponad dobę temu. Wpisz go ponownie przed wysłaniem."
+    },
+    "source_unusable": {
+      "message": "Nic nie wysłano: encja źródłowa nie ma teraz użytecznej wartości."
+    },
+    "source_not_a_number": {
+      "message": "Nic nie wysłano: encja źródłowa nie zawiera liczby."
+    },
+    "source_unit_not_volume": {
+      "message": "Nic nie wysłano: jednostka encji źródłowej {unit} nie jest jednostką objętości."
+    },
+    "source_stale": {
+      "message": "Nic nie wysłano: encja źródłowa nie zgłosiła się od {hours} h, więc jej wartość może być nieaktualna -- sprawdź wodomierz przed wysłaniem."
+    },
+    "source_silent_since_restart": {
+      "message": "Nic nie wysłano: encja źródłowa nie zgłosiła się od restartu Home Assistant, więc jej wartość może być tylko przywrócona -- sprawdź wodomierz przed wysłaniem."
+    },
+    "submit_in_progress": {
+      "message": "Nic nie wysłano: wysyłka dla tego wodomierza już trwa."
+    },
+    "submit_outcome_pending": {
+      "message": "Nic nie wysłano: ostatnia wysyłka dla wodomierza {serial} nie dostała jednoznacznej odpowiedzi z portalu. Potwierdź ją w Naprawach, zanim spróbujesz ponownie."
+    },
+    "reading_already_recorded": {
+      "message": "Nic nie wysłano: portal ma już zapisane {reading} m³ na dzień {date}."
+    },
+    "reading_already_sent": {
+      "message": "Nic nie wysłano: {reading} m³ na dzień {date} zostało już dziś wysłane."
+    },
+    "invalid_reading": {
+      "message": "Nic nie wysłano: odczyt nie jest liczbą."
+    },
+    "reading_negative": {
+      "message": "Nic nie wysłano: stan licznika nie może być ujemny."
+    },
+    "reading_below_min": {
+      "message": "Nic nie wysłano: {reading} m³ to mniej niż minimum portalu, {min} m³."
+    },
+    "reading_above_max": {
+      "message": "Nic nie wysłano: {reading} m³ to więcej niż maksimum portalu, {max} m³."
+    },
+    "reading_too_many_digits": {
+      "message": "Nic nie wysłano: {reading} m³ ma więcej niż {digits} cyfr przed przecinkiem."
+    },
+    "reading_date_future": {
+      "message": "Nic nie wysłano: data odczytu {date} jest w przyszłości."
+    },
+    "reading_date_before_previous": {
+      "message": "Nic nie wysłano: data odczytu {date} jest wcześniejsza niż poprzedni odczyt, {previous}."
+    },
+    "nothing_sent_check_failed": {
+      "message": "Nic nie wysłano: nie udało się sprawdzić wodomierza w portalu. {error}"
+    },
+    "meter_not_accepting": {
+      "message": "Nic nie wysłano: portal nie przyjmuje teraz odczytu dla wodomierza {meter_id}."
+    },
+    "meter_serial_changed": {
+      "message": "Nic nie wysłano: pod tym ID portal pokazuje teraz wodomierz {actual} zamiast {expected}. Sprawdź wodomierz przed wysłaniem."
+    },
+    "precision_changed_press_again": {
+      "message": "Nic nie wysłano: portal odczytuje teraz ten wodomierz z inną dokładnością, więc {announced} m³ poszłoby jako {reading} m³. Naciśnij ponownie, aby zgłosić {reading} m³."
+    },
+    "outcome_unknown": {
+      "message": "Odczyt {reading} m³ dla wodomierza {serial} został wysłany, ale odpowiedź portalu nie dotarła, więc mógł zostać zapisany. Sprawdź portal i potwierdź w Naprawach, zanim wyślesz ponownie, inaczej trafi na rachunek dwa razy."
+    },
+    "nothing_recorded": {
+      "message": "Portal nie przyjął odczytu, nic nie zapisano. {error}"
+    },
+    "no_account": {
+      "message": "Nie skonfigurowano żadnego konta iBOK."
+    },
+    "no_account_with_id": {
+      "message": "Żadne załadowane konto iBOK nie ma ID wpisu {entry_id}."
+    },
+    "no_meter_accepting": {
+      "message": "Portal nie przyjmuje teraz odczytu dla żadnego wodomierza."
+    },
+    "no_meter_with_id": {
+      "message": "Żaden wodomierz o ID {meter_id} nie przyjmuje teraz odczytu."
+    },
+    "several_meters": {
+      "message": "Pasuje kilka wodomierzy. Podaj meter_id, a jeśli dwa konta mają ten sam, także config_entry_id: {choices}"
+    }
+  },
+  "issues": {
+    "outcome_unknown": {
+      "title": "Odczyt wodomierza {serial} mógł nie dotrzeć do portalu",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Sprawdź odczyt w portalu",
+            "description": "Odczyt {reading} m³ na dzień {date} dla wodomierza {serial} został wysłany {sent_date} o {time}, ale odpowiedź portalu nie dotarła, więc nie wiadomo, czy portal go zapisał.\n\nSprawdź w portalu, czy odczyt tam jest, a potem potwierdź tutaj. Do tego czasu żaden kolejny odczyt dla tego wodomierza nie zostanie wysłany."
+          }
+        }
+      }
     }
   }
 }

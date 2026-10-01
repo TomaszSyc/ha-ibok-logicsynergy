@@ -39,6 +39,11 @@ ruff check . && ruff format --check .
 pytest tests/ -q
 ```
 
+`pre-commit install` włącza też gitleaks i sprawdzenie prywatnej listy zakazanych
+wartości ze zmiennej `IBOK_DENYLIST` albo pliku `~/.config/ibok-logicsynergy/denylist`
+— to plik spoza repozytorium, bo taka lista nie może w nim leżeć. Bez niego ten drugi
+hak nic nie blokuje.
+
 Testy nie łączą się z żadnym prawdziwym portalem. Logowanie i wysyłkę odczytu sprawdza
 podstawiony portal z `tests/fake_portal.py`, uruchamiany na `127.0.0.1`. Jeśli zmiana
 opiera się na jakimś zachowaniu portalu, najpierw odtwórz je tam. Każda zmiana zachowania

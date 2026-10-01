@@ -1,0 +1,9 @@
+# The oldest Home Assistant this integration still supports, pinned the same way as
+# requirements-dev.txt -- 0.13.305 is the earliest pytest-homeassistant-custom-component
+# release on PyPI and it pins homeassistant 2026.1.0 and pytest 9.0.0. CI installs this
+# file in a second job to prove the integration still loads on that minimum. It lives
+# outside the requirements-*.txt Dependabot scans, so these pins stay at that oldest
+# release instead of drifting up with the rest.
+pytest-homeassistant-custom-component==0.13.305
+pytest==9.0.0
+homeassistant==2026.1.0

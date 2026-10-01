@@ -108,13 +108,107 @@
   },
   "exceptions": {
     "press_again_to_send": {
-      "message": "Nothing was sent. Press again within {seconds} s to report {reading} m³ for meter {serial} (iBOK id {meter_id})."
+      "message": "Nothing was sent. Press again within {seconds} s to report {reading} m³ for meter {serial} (iBOK id {meter_id}). Last report: {age} ago."
     },
     "type_reading_first": {
       "message": "Type the meter reading into Reading to send first, then press again."
     },
     "typed_reading_stale": {
       "message": "The reading was typed more than a day ago. Type it again before sending."
+    },
+    "source_unusable": {
+      "message": "Nothing was sent: the source entity has no usable value right now."
+    },
+    "source_not_a_number": {
+      "message": "Nothing was sent: the source entity does not hold a number."
+    },
+    "source_unit_not_volume": {
+      "message": "Nothing was sent: the source entity's unit {unit} is not a volume."
+    },
+    "source_stale": {
+      "message": "Nothing was sent: the source entity has not reported for {hours} h, so its value may be old -- check the meter reader before sending."
+    },
+    "source_silent_since_restart": {
+      "message": "Nothing was sent: the source entity has not reported since Home Assistant restarted, so its value may only be what was restored -- check the meter reader before sending."
+    },
+    "submit_in_progress": {
+      "message": "Nothing was sent: a submission for this meter is already in progress."
+    },
+    "submit_outcome_pending": {
+      "message": "Nothing was sent: the last submission for meter {serial} never got a clear answer from the portal. Confirm it in Repairs before trying again."
+    },
+    "reading_already_recorded": {
+      "message": "Nothing was sent: the portal already has {reading} m³ for {date}."
+    },
+    "reading_already_sent": {
+      "message": "Nothing was sent: {reading} m³ for {date} was already sent today."
+    },
+    "invalid_reading": {
+      "message": "Nothing was sent: the reading is not a number."
+    },
+    "reading_negative": {
+      "message": "Nothing was sent: a meter reading cannot be negative."
+    },
+    "reading_below_min": {
+      "message": "Nothing was sent: {reading} m³ is below the portal's minimum of {min} m³."
+    },
+    "reading_above_max": {
+      "message": "Nothing was sent: {reading} m³ is above the portal's maximum of {max} m³."
+    },
+    "reading_too_many_digits": {
+      "message": "Nothing was sent: {reading} m³ has more than {digits} digits before the decimal point."
+    },
+    "reading_date_future": {
+      "message": "Nothing was sent: the reading date {date} is in the future."
+    },
+    "reading_date_before_previous": {
+      "message": "Nothing was sent: the reading date {date} is before the previous reading, {previous}."
+    },
+    "nothing_sent_check_failed": {
+      "message": "Nothing was sent: the meter could not be checked with the portal. {error}"
+    },
+    "meter_not_accepting": {
+      "message": "Nothing was sent: the portal is not accepting a reading for meter {meter_id} right now."
+    },
+    "meter_serial_changed": {
+      "message": "Nothing was sent: the portal now lists meter {actual} under this id instead of {expected}. Check the meter before sending."
+    },
+    "precision_changed_press_again": {
+      "message": "Nothing was sent: the portal now reads this meter at a different precision, so {announced} m³ would go out as {reading} m³. Press again to report {reading} m³."
+    },
+    "outcome_unknown": {
+      "message": "The reading {reading} m³ for meter {serial} went out, but the portal's answer never arrived, so it may have been recorded. Check the portal and confirm in Repairs before sending again, or it will be on the bill twice."
+    },
+    "nothing_recorded": {
+      "message": "The portal did not take the reading, nothing was recorded. {error}"
+    },
+    "no_account": {
+      "message": "No iBOK account is set up."
+    },
+    "no_account_with_id": {
+      "message": "No loaded iBOK account has the entry id {entry_id}."
+    },
+    "no_meter_accepting": {
+      "message": "The portal is not accepting a reading for any meter right now."
+    },
+    "no_meter_with_id": {
+      "message": "No meter with id {meter_id} is accepting a reading right now."
+    },
+    "several_meters": {
+      "message": "Several meters match. Pass meter_id, and if two accounts have the same one, also config_entry_id: {choices}"
+    }
+  },
+  "issues": {
+    "outcome_unknown": {
+      "title": "Reading for meter {serial} may not have reached the portal",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Check the reading on the portal",
+            "description": "The reading of {reading} m³ for {date} on meter {serial} went out on {sent_date} at {time}, but the portal's answer never arrived, so it is not known whether the portal recorded it.\n\nCheck on the portal whether the reading is there, then confirm here. Until you do, no further reading is sent for this meter."
+          }
+        }
+      }
     }
   }
 }

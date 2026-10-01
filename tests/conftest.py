@@ -62,16 +62,17 @@ async def http_session() -> aiohttp.ClientSession:
 async def setup(hass, enable_custom_integrations, portal, monkeypatch):
     """Returns a function that sets the entry up once the portal is prepared."""
     # The integration's own cookie jar refuses cookies from a bare IP address,
-    # which is all the stand-in portal has.
-    monkeypatch.setattr(
-        "custom_components.ibok.IbokApi",
-        lambda base, user, password: IbokApi(
-            base,
-            user,
-            password,
-            session=aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)),
-        ),
-    )
+    # which is all the stand-in portal has, so the session Home Assistant
+    # would hand over is swapped for one that accepts them. The integration
+    # does not close a session it was given, so the fixture does.
+    sessions: list[aiohttp.ClientSession] = []
+
+    def _api(base, user, password, session=None) -> IbokApi:
+        own = aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True))
+        sessions.append(own)
+        return IbokApi(base, user, password, session=own)
+
+    monkeypatch.setattr("custom_components.ibok.IbokApi", _api)
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="ibok.przyklad.pl",
@@ -99,3 +100,5 @@ async def setup(hass, enable_custom_integrations, portal, monkeypatch):
     if entry.state is ConfigEntryState.LOADED:
         await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+    for session in sessions:
+        await session.close()

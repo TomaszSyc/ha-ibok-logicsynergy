@@ -28,6 +28,15 @@ body:
         wyłączane przez przedsiębiorstwo i wtedy zwracają pustą odpowiedź —
         to nie jest błąd integracji.
   - type: textarea
+    id: logs
+    attributes:
+      label: Logi
+      description: >
+        Opcjonalnie. Ustawienia → System → Logi, filtr `ibok`. Na poziomie
+        debug log potrafi zawierać fragment strony portalu z danymi osobowymi
+        — przejrzyj przed wklejeniem.
+      render: text
+  - type: textarea
     id: diagnostics
     attributes:
       label: Diagnostyka

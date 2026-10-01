@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import aiohttp
 import pytest
+from fake_portal import USERNAME
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ibok.config_flow import (
@@ -101,7 +104,7 @@ async def test_adding_a_second_account_names_it_apart(
 ) -> None:
     """Both accounts would otherwise name every device and entity the same."""
 
-    async def _logged_in(data) -> None:
+    async def _logged_in(hass, data) -> None:
         return None
 
     async def _set_up(hass, entry) -> bool:
@@ -126,3 +129,35 @@ async def test_adding_a_second_account_names_it_apart(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "ibok.przyklad.pl (2)"
+
+
+async def test_a_wrong_password_is_reported_as_one(
+    hass, enable_custom_integrations, portal, monkeypatch
+) -> None:
+    """The portal answers a wrong password's menu request with an empty body."""
+
+    def _session(hass, cookie_jar):
+        # The stand-in portal is a bare IP address, whose cookies the jar the
+        # flow makes would refuse.
+        return async_create_clientsession(
+            hass, cookie_jar=aiohttp.CookieJar(unsafe=True)
+        )
+
+    monkeypatch.setattr(
+        "custom_components.ibok.config_flow.async_create_clientsession", _session
+    )
+    # The flow takes HTTPS only; the stand-in portal speaks plain HTTP.
+    monkeypatch.setattr(
+        "custom_components.ibok.config_flow.normalise_address", lambda raw: raw
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_BASE_URL: portal.base, CONF_USERNAME: USERNAME, CONF_PASSWORD: "zle"},
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_auth"}

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-from decimal import ROUND_DOWN, Decimal
+import math
+from datetime import UTC, datetime, timedelta
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfVolume
@@ -18,9 +18,10 @@ from homeassistant.util.unit_conversion import VolumeConverter
 from . import IbokConfigEntry
 from .api import IbokOutcomeUnknownError
 from .const import CONF_SOURCE_ENTITY_PREFIX, DOMAIN
-from .coordinator import IbokCoordinator, fraction_digits, meter_serial
+from .coordinator import IbokCoordinator, fraction_digits, meter_id, meter_serial
 from .entity import IbokEntity
-from .submit import async_submit
+from .ledger import reading_text
+from .submit import async_submit, truncate_to_dial
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,33 +31,23 @@ MIN_CONFIRM_GAP = timedelta(seconds=2)
 # A radio overlay reports about every minute; a day of silence means the reader
 # is dead and the entity is only showing its last value.
 MAX_SOURCE_AGE = timedelta(hours=24)
+# An overlay that reports every few minutes has not necessarily reported yet
+# this soon after a restart; refusing on silence alone would then refuse a
+# reader that is working fine.
+RESTART_GRACE = timedelta(minutes=15)
+# How long a state restored at startup keeps a last_reported close to the
+# restart itself, before a real report would have moved it on.
+RESTART_WINDOW = timedelta(minutes=5)
+
+# Attributes an overlay may publish the meter's own read time under, tried in
+# this order.
+_TIMESTAMP_ATTRS = ("timestamp", "last_seen", "last_update")
+# How far ahead of Home Assistant a reader's own clock may run before its
+# timestamps stop being believed.
+MAX_CLOCK_AHEAD = timedelta(minutes=5)
 
 # (announced at, confirm by, value announced, user who pressed)
 type Armed = tuple[datetime, datetime, float, str | None]
-
-
-def _as_text(value: float) -> str:
-    """A reading as a person reads it: no trailing .0 on a whole reading."""
-    return str(int(value)) if value == int(value) else str(value)
-
-
-def truncate_to_dial(value: float, digits: int) -> float:
-    """Cut a source value down to the precision the meter is read at.
-
-    A source entity can be far more precise than the dial -- a radio overlay
-    reports litres. The operator records what the dial shows, so the extra
-    digits are not a better reading, they are a different one.
-
-    How many digits the dial shows is the portal's own answer: it publishes a
-    fractional digit count per meter and omits it for meters read in whole
-    cubic metres. Truncation, not rounding: 48.6 is a dial still showing 48.
-
-    Decimal, because ``floor(value * 10**digits)`` is wrong for values binary
-    floating point cannot hold: 0.29 * 100 is 28.999999999999996, which
-    truncates to 0.28 and sends a reading one unit below the dial.
-    """
-    quantum = Decimal(1).scaleb(-digits) if digits > 0 else Decimal(1)
-    return float(Decimal(str(value)).quantize(quantum, rounding=ROUND_DOWN))
 
 
 def press_confirms(
@@ -100,39 +91,104 @@ def plan_press(
     return ("send" if confirmed else "announce", reading)
 
 
-def source_reading(state: State | None, now: datetime) -> float:
-    """The source entity's value in cubic metres, or refuse it.
+def source_timestamp(state: State, now: datetime) -> tuple[datetime, bool]:
+    """When the source entity's value was actually read, and whether that is known.
+
+    An overlay that publishes its own read time is more precise than Home
+    Assistant's bookkeeping: ``last_reported`` also moves on a restart, when
+    the entity's last state is merely restored, not freshly reported. Where
+    no such attribute exists, ``last_reported`` is what there is. The same
+    goes for a read time well in the future: the reader's clock is wrong,
+    and trusting it would make a source that went silent look fresh.
+    """
+    for attr in _TIMESTAMP_ATTRS:
+        raw = state.attributes.get(attr)
+        if raw is None:
+            continue
+        parsed = dt_util.parse_datetime(str(raw))
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            if parsed - now > MAX_CLOCK_AHEAD:
+                break
+            return parsed, True
+    return state.last_reported, False
+
+
+def age_text(delta: timedelta) -> str:
+    """How long ago a reading was reported, read out loud: "45 s", "3 min", "2 h".
+
+    A reader whose clock runs slightly ahead reports from the future; that
+    reads as just now.
+    """
+    seconds = max(int(delta.total_seconds()), 0)
+    if seconds < 60:
+        return f"{seconds} s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min"
+    return f"{seconds // 3600} h"
+
+
+def source_reading(
+    state: State | None, now: datetime, started_at: datetime | None
+) -> tuple[float, datetime]:
+    """The source entity's value in cubic metres and when it was read, or a refusal.
 
     Converted by its unit: a sensor in litres, or an m3 sensor whose display
     unit was switched to litres, would otherwise be sent 1000 times too high.
     Refused when stale: a dead radio overlay keeps showing its last value, and
-    that would be filed as today's reading.
+    that would be filed as today's reading. Refused too, for a while after
+    Home Assistant starts, when the only evidence of freshness is a
+    ``last_reported`` sitting right at the restart: that is what a restored
+    state looks like, indistinguishable from a reader that has stayed silent
+    since. An overlay that timestamps its own reading is trusted as soon as it
+    reports, restart or not.
     """
     if state is None or state.state in ("unknown", "unavailable"):
-        raise ServiceValidationError("The source entity has no usable value right now")
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="source_unusable"
+        )
     try:
         value = float(state.state)
     except ValueError as err:
         raise ServiceValidationError(
-            f"The source entity does not hold a number: {state.state}"
+            translation_domain=DOMAIN, translation_key="source_not_a_number"
         ) from err
+    if not math.isfinite(value):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="source_not_a_number"
+        )
 
     unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
     try:
         cubic_metres = VolumeConverter.convert(value, unit, UnitOfVolume.CUBIC_METERS)
     except HomeAssistantError as err:
         raise ServiceValidationError(
-            f"The source entity's unit {unit!r} is not a volume"
+            translation_domain=DOMAIN,
+            translation_key="source_unit_not_volume",
+            translation_placeholders={"unit": str(unit)},
         ) from err
 
-    silent = now - state.last_reported
+    reported, from_attribute = source_timestamp(state, now)
+    silent = now - reported
     if silent > MAX_SOURCE_AGE:
         hours = int(silent.total_seconds() // 3600)
         raise ServiceValidationError(
-            f"The source entity has not reported for {hours} h, so its value may "
-            "be old -- check the meter reader before sending"
+            translation_domain=DOMAIN,
+            translation_key="source_stale",
+            translation_placeholders={"hours": str(hours)},
         )
-    return cubic_metres
+    if (
+        not from_attribute
+        and started_at is not None
+        and now - started_at > RESTART_GRACE
+        and started_at <= reported <= started_at + RESTART_WINDOW
+    ):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="source_silent_since_restart"
+        )
+    return cubic_metres, reported
 
 
 def typed_reading(typed: tuple[float, datetime] | None, now: datetime) -> float:
@@ -172,12 +228,13 @@ async def async_setup_entry(
         entities = []
         for meter in coordinator.submittable_meters:
             serial = meter_serial(meter)
-            if meter.get("id_wodom") is None or serial in known:
+            mid = meter_id(meter)
+            if mid is None or serial in known:
                 continue
             known.add(serial)
             if entry.options.get(f"{CONF_SOURCE_ENTITY_PREFIX}{serial}"):
                 _show_if_hidden_by_us(registry, f"{entry.entry_id}_{serial}_submit")
-            entities.append(IbokSubmitButton(coordinator, meter))
+            entities.append(IbokSubmitButton(coordinator, meter, mid))
         if entities:
             async_add_entities(entities)
 
@@ -215,8 +272,10 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
     # failed poll of the reading form does not have to make the button unusable.
     _modules = ()
 
-    def __init__(self, coordinator: IbokCoordinator, meter: dict) -> None:
-        self._meter_id = int(meter["id_wodom"])
+    def __init__(
+        self, coordinator: IbokCoordinator, meter: dict, meter_id: int
+    ) -> None:
+        self._meter_id = meter_id
         self._serial = meter_serial(meter)
         self._armed: Armed | None = None
         super().__init__(coordinator, f"{self._serial}_submit", self._serial)
@@ -232,11 +291,15 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
         source = entry.options.get(f"{CONF_SOURCE_ENTITY_PREFIX}{self._serial}")
         now = dt_util.utcnow()
         if source:
-            value = source_reading(self.hass.states.get(source), now)
-        else:
-            value = typed_reading(
-                self.coordinator.typed_readings.get(self._meter_id), now
+            started_at = self.hass.data.get(DOMAIN, {}).get("started_at")
+            value, reported = source_reading(
+                self.hass.states.get(source), now, started_at
             )
+            age = now - reported
+        else:
+            typed_entry = self.coordinator.typed_readings.get(self._meter_id)
+            value = typed_reading(typed_entry, now)
+            age = now - typed_entry[1]
         user_id = self._context.user_id if self._context else None
 
         decision, reading = plan_press(
@@ -252,10 +315,11 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
                 translation_domain=DOMAIN,
                 translation_key="press_again_to_send",
                 translation_placeholders={
-                    "reading": _as_text(reading),
+                    "reading": reading_text(reading),
                     "serial": self._serial,
                     "meter_id": str(self._meter_id),
                     "seconds": str(int(CONFIRM_WINDOW.total_seconds())),
+                    "age": age_text(age),
                 },
             )
 
@@ -276,7 +340,16 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
             # This button's own coordinator, not a lookup through the service:
             # with two accounts the service has to guess which one is meant,
             # while the button already knows. Validation stays in one place.
-            await async_submit(self.coordinator, self._meter_id, reading)
+            # The serial and the value are what the announcement showed, so
+            # a replaced meter or a changed dial precision is refused rather
+            # than sent under what the user confirmed.
+            await async_submit(
+                self.coordinator,
+                self._meter_id,
+                reading,
+                expected_serial=self._serial,
+                announced=reading,
+            )
         except HomeAssistantError as err:
             if typed and not isinstance(err.__cause__, IbokOutcomeUnknownError):
                 self.coordinator.typed_readings.setdefault(self._meter_id, typed)

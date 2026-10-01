@@ -63,7 +63,9 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
   zamiast zgadywać
 - przy **dwóch kontach** każdy przycisk wysyła przez swoje konto; usługa szuka
   wodomierza we wszystkich i pyta o `config_entry_id` tylko wtedy, gdy oba konta mają
-  wodomierz o tym samym identyfikatorze
+  wodomierz o tym samym identyfikatorze. Tak samo, gdy akurat jeden portal nie odpowie
+  na zapytanie: usługa nie zgaduje wtedy, które konto to jest, tylko odmawia jako
+  niejednoznaczne i prosi o `config_entry_id`
 - drugie konto na tym samym portalu dostaje nazwę z numerem, np. `ibok.przyklad.pl (2)`,
   bo inaczej oba nazywałyby tak samo każde urządzenie; nazwę wpisu można potem zmienić
 
@@ -73,7 +75,10 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
 - **Ostatnia faktura** — kwota brutto ostatnio wystawionej faktury, z kwotą netto i VAT
   w atrybutach
 - **Termin płatności** — do kiedy zapłacić ostatnią fakturę
-- **Wodomierz N — stan** — ostatni odczyt zarejestrowany przez przedsiębiorstwo
+- **Wodomierz N — stan** — najwyższy odczyt, jaki portal kiedykolwiek zarejestrował dla
+  tego wodomierza; nie spada, nawet gdy portal pokaże korektę niższą od poprzedniego
+  odczytu. Ostatni odczyt portalu i to, czy jest korektą, są w atrybutach
+  `portal_reading` i `corrected`
 - **Wodomierz N — zużycie** — zużycie w ostatnim okresie rozliczeniowym
 - **Wodomierz N — cena za m³** — woda i ścieki brutto z ostatniej faktury, w takiej
   części, w jakiej przedsiębiorstwo rozlicza ten wodomierz
@@ -85,9 +90,11 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
   encji źródłowej domyślnie ukryty
 
 Każda encja pochodzi z jednego modułu portalu. Gdy któryś nie odpowie, niedostępne są
-tylko jego encje. Przycisk działa dalej, bo przed wysłaniem i tak pyta portal od nowa.
-Wodomierz, który pojawi się w portalu później, na przykład po wymianie, dostaje encje
-przy najbliższym odpytaniu, bez restartu.
+tylko jego encje. Przycisk **wodomierza, który już go ma**, działa dalej, bo przed
+wysłaniem i tak pyta portal od nowa. Działa nawet wtedy, gdy akurat ten moduł zawiedzie
+przy zwykłym odpytywaniu. Nowy wodomierz dostaje swój przycisk dopiero, gdy ten moduł
+odpowie choć raz; wodomierz, który pojawi się w portalu później, na przykład po wymianie,
+dostaje encje przy najbliższym odpytaniu, bez restartu.
 
 ### Koszt wody w panelu Energii
 
@@ -116,14 +123,26 @@ przyciskiem. Tuż przed wysłaniem integracja pyta portal o aktualny zakres, lic
 i poprzedni odczyt — nie ufa danym sprzed kilku godzin — więc literówka nie dojdzie do
 przedsiębiorstwa.
 
-Jeśli odczyt wyszedł, a odpowiedź portalu nie dotarła, integracja mówi to wprost
-i **nie ponawia wysłania**: portal mógł go już zapisać, a drugi raz trafiłby na fakturę.
-Wtedy sprawdź zgłoszenie w portalu, zanim wyślesz ponownie.
+Integracja **odmawia powtórnego wysłania tego samego odczytu tego samego dnia**. Odmawia,
+gdy portal już ma taką wartość na ten dzień. Odmawia też, gdy sama go już dziś wysłała.
+To drugie pamięta tylko do restartu lub przeładowania integracji, a przeładowuje ją
+też każdy zapis opcji.
+Inna wartość tego samego dnia to korekta, nie powtórka, i przechodzi normalnie.
 
-Przycisk dodatkowo **ucina wartość encji źródłowej do dokładności tarczy**. Nakładka
-radiowa podaje litry, a przedsiębiorstwo zapisuje to, co widać na liczydle; ile cyfr ono
-pokazuje, mówi sam portal. Ucięcie, nie zaokrąglenie — przy 48,6 tarcza nadal pokazuje
-48. Usługa wywołana wprost wysyła to, co jej podasz.
+Jeśli odczyt wyszedł, a odpowiedź portalu nie dotarła, integracja **nie ponawia wysłania
+samodzielnie**: portal mógł go już zapisać, a drugi raz trafiłby na fakturę. Zamiast tego
+zakłada zgłoszenie w Ustawienia → Urządzenia i usługi → Naprawy i blokuje dalszą wysyłkę na
+ten wodomierz. Blokada zniknie sama, gdy portal przy kolejnym odpytaniu pokaże ten odczyt.
+Inaczej sprawdź w portalu, czy odczyt tam jest, otwórz zgłoszenie i potwierdź: to też
+zdejmuje blokadę. „Zignoruj” w Naprawach tego nie robi. Zgłoszenie chowa się wtedy pod
+„pokaż zignorowane”, ale blokada zostaje, dopóki go faktycznie nie otworzysz i nie
+potwierdzisz, albo dopóki portal sam nie pokaże tego odczytu.
+
+Wartość jest ucinana **do dokładności tarczy** tuż przed wysłaniem, tak samo w usłudze,
+jak w przycisku. Nakładka radiowa podaje litry, a przedsiębiorstwo zapisuje to, co widać
+na liczydle; ile cyfr ono pokazuje, mówi sam portal, sprawdzany tuż przed wysyłką.
+Ucięcie, nie zaokrąglenie: przy 48,6 tarcza nadal pokazuje 48, więc i wywołanie usługi
+z `reading: 48.6` wyśle 48.
 
 ### Przycisk pyta o potwierdzenie
 
@@ -146,6 +165,21 @@ podwójne kliknięcie niczego nie wyśle. Wartość encji źródłowej jest prze
 jednostki na m³, a gdy encja nie odzywa się od ponad doby, przycisk odmawia: martwa
 nakładka pokazuje ostatni stan, który wyglądałby jak dzisiejszy.
 
+Encja bez własnego znacznika czasu odczytu ma dodatkową osłonę po restarcie Home
+Assistanta. Przez pierwsze 15 minut po starcie przycisk jej ufa, bo nakładka mogła
+jeszcze nie zdążyć się zgłosić: liczy się wtedy tylko reguła doby, opisana wyżej. Dopiero
+po tych 15 minutach odmawia, jeśli `last_reported` tej encji wciąż wskazuje pierwsze
+5 minut po starcie. To wygląda jak stan przywrócony z poprzedniej sesji, nie da się go
+odróżnić od czujnika, który od restartu milczy. W pierwszych 15 minutach przywrócony
+stan więc przejdzie, tak jak świeży.
+
+Reguła łapie tylko restart samego Home Assistanta. Restart samej nakładki radiowej albo
+jej brokera, bez restartu HA, jej nie uruchamia: wartość, którą wtedy zgłoszą ponownie,
+przycisk przyjmie jak świeżą, choć to ten sam stary odczyt. Sensor szablonowy jako
+źródło ma dodatkową pułapkę. Jego `last_reported` rusza dopiero, gdy zmieni się policzona
+wartość, nie przy każdym przeliczeniu. Odczyt, który nie drgnął od ponad doby, wygląda
+wtedy dla przycisku jak martwe źródło, choć szablon liczy poprawnie.
+
 Bez encji źródłowej wpisujesz stan z tarczy w polu **Odczyt do wysłania** i naciskasz
 przycisk dwa razy, jak wyżej. Wpis jest ważny przez dobę i nie przetrwa restartu, żeby
 zapomniany odczyt z zeszłego miesiąca nie poszedł jako dzisiejszy. Po wysłaniu pole się
@@ -163,6 +197,11 @@ Integracja nieoficjalna, niezwiązana z LogicSynergy ani z żadnym przedsiębior
 Hasło trafia wyłącznie do konfiguracji Home Assistanta i jest wysyłane tylko do
 wskazanego portalu, zawsze przez HTTPS. Integracja nie podąża za przekierowaniem, które
 prowadzi poza ten portal.
+
+Z włączonym logowaniem na poziomie debug po każdej wysyłce odczytu w logu ląduje surowa
+odpowiedź portalu, nieprzefiltrowana. W przeciwieństwie do diagnostyki integracji, gdzie
+dane z portalu są zamaskowane, tego logu nie wklejaj wprost do publicznego zgłoszenia.
+Przejrzyj go najpierw.
 
 ## Rozwój
 
@@ -186,6 +225,10 @@ Testy importują integrację **wobec przypiętej wersji Home Assistanta**. To te
 wyłapuje zniknięcie helpera po aktualizacji rdzenia — inaczej pierwszym sygnałem jest
 instancja, która odmawia załadowania integracji.
 
+Minimalna wspierana wersja to **Home Assistant 2026.1** i CI ma osobne zadanie, które
+uruchamia te same testy właśnie na niej. Integracja ma nie zacząć po cichu wymagać
+nowszego rdzenia.
+
 Wersja w `manifest.json` rośnie z każdym commitem. Przy HACS to jedyny tani dowód, co
 komu faktycznie siedzi na dysku.
 
@@ -196,12 +239,20 @@ być tym samym numerem, co `version` w `manifest.json` — jeśli się rozjadą,
 jedną wersję, a `manifest.json` na dysku będzie mówił co innego i nie da się ustalić,
 co instancja naprawdę uruchamia.
 
+Wydań nie tworzy się ręcznie. Po wypchnięciu taga workflow sam odpala ruff, testy i
+sprawdzenie zgodności taga z manifestem, i dopiero gdy to przejdzie, publikuje wydanie na
+GitHubie z treścią adnotacji taga jako opisem. Tag musi więc mieć adnotację (`git tag -a`,
+nie sam `git tag`). Bez niej workflow odmówi publikacji. Tag z częścią przedpremierową,
+na przykład `v1.0.0-beta.1`, trafia na GitHuba jako wydanie testowe. HACS pokazuje je tylko
+tym, którzy włączyli wersje beta dla tego repozytorium.
+
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag -a v0.2.1 -F notatki.md && git push origin v0.2.1
 ```
 
 `test_manifest.py` pilnuje, żeby numer w manifeście był poprawnym semverem; zgodność
-z tagiem sprawdza workflow wydania.
+z tagiem i cały zestaw testów sprawdza ten sam workflow wydania, zanim cokolwiek
+opublikuje.
 
 ## Licencja
 

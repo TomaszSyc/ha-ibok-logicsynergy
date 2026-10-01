@@ -19,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import IbokConfigEntry
-from .coordinator import IbokCoordinator, meter_serial
+from .coordinator import IbokCoordinator, meter_serial, parse_number
 from .entity import IbokEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,31 +53,52 @@ async def async_setup_entry(
 
     @callback
     def _add_new_meters() -> None:
+        data = coordinator.data
+        readouts = data.get("readouts") or []
+        meters = data.get("meters") or []
+        notify = data.get("notify") or []
+        readout_serials = {s for row in readouts if (s := meter_serial(row))}
+        notify_serials = {s for row in notify if (s := meter_serial(row))}
+
         entities: list[SensorEntity] = []
-        for row in coordinator.data.get("readouts") or []:
+        for row in readouts:
             serial = meter_serial(row)
             if serial and ("readouts", serial) not in known:
                 known.add(("readouts", serial))
                 entities.append(IbokLastReadingSensor(coordinator, serial))
                 entities.append(IbokLastConsumptionSensor(coordinator, serial))
+
+        # A meter can be billed by the cubic metre before it has ever reported
+        # a reading, so the price sensor is keyed off the readouts and the
+        # meter list together, not the readouts alone.
+        meter_serials = {s for row in meters if (s := meter_serial(row))}
+        for serial in readout_serials | meter_serials:
+            if ("price", serial) not in known:
+                known.add(("price", serial))
                 entities.append(IbokPriceSensor(coordinator, serial))
-        for row in coordinator.data.get("meters") or []:
+
+        for row in meters:
             serial = meter_serial(row)
-            if serial and ("meters", serial) not in known:
-                known.add(("meters", serial))
-                entities.append(IbokLegalisationSensor(coordinator, serial))
+            if not serial or ("meters", serial) in known:
+                continue
+            # A meter dropped from both the readouts and the reading form has
+            # been dismantled and gets no legalisation reminder. When the
+            # readouts are empty outright -- the module failed, or none has
+            # reported yet -- that is not evidence of dismantling, so every
+            # listed meter still gets one.
+            if (
+                readouts
+                and serial not in readout_serials
+                and serial not in notify_serials
+            ):
+                continue
+            known.add(("meters", serial))
+            entities.append(IbokLegalisationSensor(coordinator, serial))
         if entities:
             async_add_entities(entities)
 
     _add_new_meters()
     entry.async_on_unload(coordinator.async_add_listener(_add_new_meters))
-
-
-def _to_float(value: Any) -> float | None:
-    try:
-        return float(str(value).replace(",", ".").replace(" ", ""))
-    except (TypeError, ValueError):
-        return None
 
 
 def _to_date(value: Any) -> date | None:
@@ -105,26 +126,68 @@ def latest_invoice(invoices: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] |
     return max(invoices, key=lambda row: _to_date(row.get("nw")) or date.min)
 
 
-def unit_prices(invoice: Mapping[str, Any]) -> dict[str, float]:
+def latest_payable_invoice(
+    invoices: Iterable[Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    """The newest invoice that actually calls for payment.
+
+    A correction can be the newest invoice by issue date yet carry a gross
+    amount of zero and no due date of its own; the deadline then still
+    belongs to the invoice it corrects.
+    """
+    payable = [
+        row
+        for row in invoices
+        if (parse_number(row.get("brutto")) or 0) > 0
+        and _to_date(row.get("nt")) is not None
+    ]
+    if not payable:
+        return None
+    return max(payable, key=lambda row: _to_date(row.get("nw")) or date.min)
+
+
+def _vat_rate(value: Any) -> float | None:
+    """A cubic-metre line's VAT rate in percent, or ``None`` if unreadable.
+
+    ``zw`` marks a line exempt from VAT, in force at 0%. Anything else that
+    does not parse as a number -- including a missing rate -- is not assumed
+    to be exempt as well, since that would silently price the line net.
+    """
+    text = str(value or "").strip().lower()
+    if text in ("zw", "zw."):
+        return 0.0
+    return parse_number(text.replace("%", ""))
+
+
+def unit_prices(invoice: Mapping[str, Any]) -> dict[str, float] | None:
     """Gross price of a cubic metre on one invoice: water, sewage, other.
 
     Only lines billed per cubic metre count; a standing charge is billed per
     month and has no place in a price per volume. A line with neither word in
-    its name is kept as "other" rather than guessed at.
+    its name is kept as "other" rather than guessed at. Lines are grouped by
+    kind and by their own name: the same name appearing twice is a correction,
+    the later line in force, while distinct names of the same kind are billed
+    together and add up. A line whose VAT rate cannot be read makes the whole
+    invoice's price unknown, rather than silently pricing it net.
     """
-    prices: dict[str, float] = {}
+    by_line: dict[tuple[str, str], float] = {}
     for block in invoice.get("pw") or []:
         for line in (block.get("poz") or []) if isinstance(block, dict) else []:
             if not isinstance(line, dict):
                 continue
             unit = str(line.get("pj") or "").strip().lower()
-            net = _to_float(line.get("pc"))
+            net = parse_number(line.get("pc"))
             if not _CUBIC_METRE.fullmatch(unit) or net is None:
                 continue
-            vat = _to_float(str(line.get("pt") or "").replace("%", "")) or 0.0
-            # Assumed: a period split by a tariff change is billed on two lines
-            # of one kind, the newer price last, so the last one is in force.
-            prices[_line_kind(str(line.get("pn") or ""))] = net * (1 + vat / 100)
+            vat = _vat_rate(line.get("pt"))
+            if vat is None:
+                return None
+            name = str(line.get("pn") or "").strip().lower()
+            kind = _line_kind(name)
+            by_line[(kind, name)] = net * (1 + vat / 100)
+    prices: dict[str, float] = {}
+    for (kind, _name), price in by_line.items():
+        prices[kind] = prices.get(kind, 0.0) + price
     return prices
 
 
@@ -134,13 +197,19 @@ def current_unit_prices(
     """Prices from the newest invoice that bills by the cubic metre.
 
     A correction invoice can come last and carry no such line, so the search
-    goes back until one does.
+    goes back until one does. The first invoice that does bill by the cubic
+    metre is the one in force: if its VAT rate cannot be read, the price is
+    unknown, and an older invoice is not taken instead -- its tariff may no
+    longer apply.
     """
     newest_first = sorted(
         invoices, key=lambda row: _to_date(row.get("nw")) or date.min, reverse=True
     )
     for invoice in newest_first:
-        if prices := unit_prices(invoice):
+        prices = unit_prices(invoice)
+        if prices is None:
+            return None
+        if prices:
             return prices, invoice
     return None
 
@@ -169,7 +238,7 @@ def _line_kind(name: str) -> str:
 
 def _share(value: Any) -> float:
     """A billed share in percent; missing means billed in full."""
-    number = _to_float(value)
+    number = parse_number(value)
     return 100.0 if number is None else number
 
 
@@ -209,7 +278,7 @@ class IbokBalanceSensor(IbokEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data.get("accountancy") or {}
-        return _to_float(data.get("roznica"))
+        return parse_number(data.get("roznica"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -237,7 +306,7 @@ class IbokLastInvoiceSensor(IbokEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         invoice = self._latest()
-        return _to_float(invoice.get("brutto")) if invoice else None
+        return parse_number(invoice.get("brutto")) if invoice else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -246,10 +315,12 @@ class IbokLastInvoiceSensor(IbokEntity, SensorEntity):
 
 
 class IbokPaymentDueSensor(IbokEntity, SensorEntity):
-    """The payment deadline of the newest invoice.
+    """The payment deadline of the newest invoice that actually calls for one.
 
     With the balance it is all a reminder needs: a balance above zero and the
     deadline a few days away. ``nt`` is labelled DateOfPayment by the portal.
+    A correction invoice is skipped: its own gross amount is not owed, and its
+    due date belongs to the invoice it corrects.
     """
 
     _attr_translation_key = "payment_due"
@@ -261,7 +332,7 @@ class IbokPaymentDueSensor(IbokEntity, SensorEntity):
 
     @property
     def native_value(self) -> date | None:
-        invoice = latest_invoice(self.coordinator.data.get("invoices") or [])
+        invoice = latest_payable_invoice(self.coordinator.data.get("invoices") or [])
         return _to_date(invoice.get("nt")) if invoice else None
 
 
@@ -280,7 +351,15 @@ class _MeterSensor(IbokEntity, SensorEntity):
 
 
 class IbokLastReadingSensor(_MeterSensor):
-    """Meter reading as registered by the operator."""
+    """Meter reading as registered by the operator.
+
+    The portal can itself show a correction lower than an earlier reading --
+    a re-read, a misrecorded value fixed later -- and Home Assistant's
+    long-term statistics never let a total-increasing sensor go backwards.
+    The state is therefore the highest reading the portal has ever recorded
+    for this meter, not necessarily the latest one; ``portal_reading`` and
+    ``corrected`` say when the two differ.
+    """
 
     _attr_translation_key = "last_reading"
     _attr_device_class = SensorDeviceClass.WATER
@@ -292,16 +371,29 @@ class IbokLastReadingSensor(_MeterSensor):
 
     @property
     def native_value(self) -> float | None:
-        last = self._last()
-        return _to_float(last.get("sl")) if last else None
+        values = self._values()
+        return max(values) if values else None
+
+    def _values(self) -> list[float]:
+        rows = _readouts_for(self.coordinator, self._serial)
+        return [v for r in rows if (v := parse_number(r.get("sl"))) is not None]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         last = self._last() or {}
+        portal_reading = parse_number(last.get("sl"))
+        highest = self.native_value
+        corrected = (
+            portal_reading is not None
+            and highest is not None
+            and portal_reading < highest
+        )
         return {
             "meter": self._serial,
             "reading_date": last.get("do"),
             "type": last.get("typ"),
+            "portal_reading": portal_reading,
+            "corrected": corrected,
         }
 
 
@@ -319,7 +411,7 @@ class IbokLastConsumptionSensor(_MeterSensor):
     @property
     def native_value(self) -> float | None:
         last = self._last()
-        return _to_float(last.get("zu")) if last else None
+        return parse_number(last.get("zu")) if last else None
 
     @property
     def last_reset(self) -> datetime | None:
@@ -355,31 +447,85 @@ class IbokPriceSensor(_MeterSensor):
         self._attr_native_unit_of_measurement = (
             f"{currency}/{UnitOfVolume.CUBIC_METERS}"
         )
+        # Each logged at most once per entity, not once ever: a module-global
+        # flag would silence a warning for every account after the first one
+        # to hit it.
+        self._warned_shares_unknown = False
+        self._warned_unreadable_vat = False
+        self._logged_no_price = False
 
-    def _shares(self) -> tuple[float, float]:
-        row = _meter_row(self.coordinator, self._serial) or {}
-        return _share(row.get("procent_w")), _share(row.get("procent_k"))
+    def _shares(self) -> tuple[float, float, str] | None:
+        """This meter's billed share of water and sewage, and where it is from.
+
+        A meter listed in ``Meters_v1`` is billed exactly as the portal says.
+        An empty list is not evidence of anything -- most accounts have one
+        meter and no sub-metering to declare -- so the meter is assumed
+        billed in full. A non-empty list that leaves this meter out is
+        different: the portal did have something to say about every meter it
+        knows, and did not say it about this one, so the share is unknown
+        rather than guessed at.
+        """
+        row = _meter_row(self.coordinator, self._serial)
+        if row is not None:
+            return _share(row.get("procent_w")), _share(row.get("procent_k")), "portal"
+        if not self.coordinator.data.get("meters"):
+            return 100.0, 100.0, "assumed_full"
+        if not self._warned_shares_unknown:
+            self._warned_shares_unknown = True
+            _LOGGER.warning(
+                "Meter %s is not in the operator's meter list, its billed"
+                " share of water and sewage is unknown",
+                self._serial,
+            )
+        return None
+
+    def _current_prices(self) -> tuple[dict[str, float], Mapping[str, Any]] | None:
+        invoices = self.coordinator.data.get("invoices") or []
+        current = current_unit_prices(invoices)
+        if current is not None:
+            return current
+        if any(unit_prices(invoice) is None for invoice in invoices):
+            # The newest invoice with a cubic-metre line has a VAT rate that
+            # could not be read: an unreadable older one would not get here,
+            # since a readable newer one sets the price first.
+            if not self._warned_unreadable_vat:
+                self._warned_unreadable_vat = True
+                _LOGGER.warning(
+                    "An invoice for meter %s has a cubic-metre line with an"
+                    " unreadable VAT rate, its price is unknown",
+                    self._serial,
+                )
+        elif not self._logged_no_price:
+            self._logged_no_price = True
+            _LOGGER.debug(
+                "No invoice bills meter %s by the cubic metre yet", self._serial
+            )
+        return None
 
     @property
     def native_value(self) -> float | None:
-        current = current_unit_prices(self.coordinator.data.get("invoices") or [])
-        if current is None:
+        shares = self._shares()
+        current = self._current_prices()
+        if shares is None or current is None:
             return None
-        return round(meter_price(current[0], *self._shares()), 4)
+        water, sewage, _source = shares
+        return round(meter_price(current[0], water, sewage), 4)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        current = current_unit_prices(self.coordinator.data.get("invoices") or [])
-        if current is None:
-            return {}
-        prices, invoice = current
-        water, sewage = self._shares()
-        return {
-            **{kind: round(price, 4) for kind, price in prices.items()},
-            "water_share": water,
-            "sewage_share": sewage,
-            "invoice_date": invoice.get("nw"),
-        }
+        attrs: dict[str, Any] = {}
+        shares = self._shares()
+        if shares is not None:
+            water, sewage, source = shares
+            attrs["water_share"] = water
+            attrs["sewage_share"] = sewage
+            attrs["shares"] = source
+        current = self._current_prices()
+        if current is not None:
+            prices, invoice = current
+            attrs.update({kind: round(price, 4) for kind, price in prices.items()})
+            attrs["invoice_date"] = invoice.get("nw")
+        return attrs
 
 
 class IbokLegalisationSensor(_MeterSensor):

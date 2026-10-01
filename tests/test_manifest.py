@@ -30,7 +30,9 @@ def test_version_is_semver() -> None:
     """HACS sorts releases by semver and installs the newest.
 
     A version it cannot parse is not treated as newer than anything, so a
-    malformed number here means users silently never get the update.
+    malformed number here means users silently never get the update. A beta
+    carries a semver pre-release part, which sorts below the release itself.
     """
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert re.fullmatch(r"\d+\.\d+\.\d+", manifest["version"]), manifest["version"]
+    version = manifest["version"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+(-(beta|rc)\.\d+)?", version), version

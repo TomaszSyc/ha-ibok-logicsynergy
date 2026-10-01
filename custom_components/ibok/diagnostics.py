@@ -4,7 +4,8 @@ A report from another operator's portal is useful only with the data that
 portal sends, and that data is a household's bills, meters and address. So
 every value is masked, letters to x and digits to 9, with everything else
 kept. That keeps what a fix depends on: which fields exist, how a date or a
-decimal is written, whether a list is empty.
+decimal is written, whether a list is empty. Numbers keep their JSON type
+(an int stays an int, a float stays a float) so that too is still visible.
 """
 
 from __future__ import annotations
@@ -19,11 +20,13 @@ from homeassistant.core import HomeAssistant
 
 from . import IbokConfigEntry
 from .api import IbokError
+from .const import CONF_SOURCE_ENTITY_PREFIX
 
 # Enough items of a list to show its shape; the rest are only counted.
 _MAX_ITEMS = 3
-# Four digits or more in a key are data rather than part of a field name: the
-# option keys carry the meter serial, for one. Only that part is masked.
+# Four digits or more in a key are data rather than part of a field name: a
+# coordinator-data key carries the meter serial, for one. Only that part is
+# masked.
 _DATA_IN_KEY = re.compile(r"\d{4,}")
 # Asking the portal for its menu must not hold the download for the full
 # request timeout when the portal is down.
@@ -38,13 +41,46 @@ def mask(value: Any) -> Any:
         shown = [mask(item) for item in value[:_MAX_ITEMS]]
         hidden = len(value) - _MAX_ITEMS
         return shown + [f"... {hidden} more"] if hidden > 0 else shown
+    # bool is an int subclass, so it must be checked before int.
     if value is None or isinstance(value, bool):
         return value
+    if isinstance(value, int):
+        return _mask_int(value)
+    if isinstance(value, float):
+        return _mask_float(value)
     return re.sub(r"\d", "9", re.sub(r"[^\W\d_]", "x", str(value)))
+
+
+def _mask_int(value: int) -> int:
+    """An int of the same digit count made of 9s, sign kept."""
+    masked = int("9" * len(str(abs(value))))
+    return -masked if value < 0 else masked
+
+
+def _mask_float(value: float) -> float:
+    """A float with every digit of its own representation replaced by 9."""
+    masked = re.sub(r"\d", "9", repr(value))
+    try:
+        return float(masked)
+    except ValueError:
+        # An odd repr (should not happen for a finite float) is still data:
+        # fall back to the generic letters-and-digits mask.
+        return re.sub(r"\d", "9", re.sub(r"[^\W\d_]", "x", str(value)))
 
 
 def _mask_key(key: str) -> str:
     return _DATA_IN_KEY.sub(lambda digits: "9" * len(digits.group()), key)
+
+
+def _mask_option_key(key: str) -> str:
+    """An option key with only the meter serial after its prefix masked.
+
+    The prefix itself is a fixed field name, not data, so it is kept exact;
+    everything after it (the serial) is masked like any other value.
+    """
+    if key.startswith(CONF_SOURCE_ENTITY_PREFIX):
+        return CONF_SOURCE_ENTITY_PREFIX + mask(key[len(CONF_SOURCE_ENTITY_PREFIX) :])
+    return key
 
 
 async def async_get_config_entry_diagnostics(
@@ -59,7 +95,7 @@ async def async_get_config_entry_diagnostics(
         modules = f"not available: {type(err).__name__}"
 
     options = {
-        _mask_key(key): value if key == CONF_SCAN_INTERVAL else mask(value)
+        _mask_option_key(key): value if key == CONF_SCAN_INTERVAL else mask(value)
         for key, value in entry.options.items()
     }
     return {

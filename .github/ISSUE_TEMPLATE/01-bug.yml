@@ -30,8 +30,9 @@ body:
     attributes:
       label: Logi
       description: >
-        Ustawienia → System → Logi, filtr `ibok`. Przejrzyj przed wklejeniem —
-        logi potrafią zawierać adres i numer wodomierza.
+        Ustawienia → System → Logi, filtr `ibok`. Na poziomie debug log potrafi
+        zawierać fragment strony portalu z danymi osobowymi — przejrzyj przed
+        wklejeniem.
       render: text
   - type: textarea
     id: diagnostics
