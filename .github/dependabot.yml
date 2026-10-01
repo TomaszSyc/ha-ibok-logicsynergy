@@ -19,3 +19,6 @@ updates:
     ignore:
       - dependency-name: homeassistant
       - dependency-name: pytest
+    # The minimum Home Assistant the integration supports, kept old on purpose.
+    exclude-paths:
+      - "ci/minimum-ha.txt"
