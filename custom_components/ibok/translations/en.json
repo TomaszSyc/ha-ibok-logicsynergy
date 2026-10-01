@@ -143,6 +143,9 @@
     "reading_already_sent": {
       "message": "Nothing was sent: {reading} m³ for {date} was already sent today."
     },
+    "submission_waiting": {
+      "message": "Nothing was sent: the portal already holds a reading of {reading} m³ for {date} on meter {serial}, waiting or in progress. To correct or remove it, use the “Zgłoszenie odczytu” tab on the portal."
+    },
     "invalid_reading": {
       "message": "Nothing was sent: the reading is not a number."
     },
@@ -196,6 +199,24 @@
     },
     "several_meters": {
       "message": "Several meters match. Pass meter_id, and if two accounts have the same one, also config_entry_id: {choices}"
+    },
+    "submission_refused": {
+      "message": "The portal refused the reading {reading} m³ for {date}: {comment}. It will not be on the bill; once corrected, it can be sent again."
+    },
+    "reading_reported_title": {
+      "message": "Reading for meter {serial} reported"
+    },
+    "reading_reported": {
+      "message": "The reading {reading} m³ for {date} on meter {serial} reached the portal, status: {status}. The portal shows it in the “Zgłoszenie odczytu” tab, not in the list of readings, which only shows it once the operator approves it."
+    },
+    "submission_status_waiting": {
+      "message": "waiting"
+    },
+    "submission_status_in_progress": {
+      "message": "in progress"
+    },
+    "submission_status_approved": {
+      "message": "approved"
     }
   },
   "issues": {

@@ -35,7 +35,10 @@ def _api(portal, http_session, password: str = PASSWORD) -> IbokApi:
 
 async def _submit(api: IbokApi, reading: float = 48.0) -> str:
     return await api.async_submit_reading(
-        meter_id=10001, reading=reading, reading_date="2026-10-01", previous="45"
+        meter_id=10001,
+        reading=reading,
+        reading_date="2026-10-01",
+        previous_reading_id="1234567",
     )
 
 
@@ -324,14 +327,14 @@ async def test_submission_posts_the_portal_form(portal, http_session) -> None:
         meter_id=10001,
         reading=48.05,
         reading_date="2026-10-01",
-        previous="45",
+        previous_reading_id="1234567",
         note="uwaga",
     )
 
     assert portal.submissions == [
         {
             "id_wodom": "10001",
-            "odcz_poprz": "45",
+            "odcz_poprz": "1234567",
             "txtDateOfReading": "2026-10-01",
             "txtReadingNr": "48",
             "txtReadingFrac": "050",

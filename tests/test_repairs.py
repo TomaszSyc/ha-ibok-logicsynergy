@@ -10,18 +10,20 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 import pytest
-from fake_portal import PASSWORD, USERNAME
+from fake_portal import METER, PASSWORD, USERNAME
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ibok import repairs
+from custom_components.ibok.api import IbokOutcomeUnknownError
 from custom_components.ibok.const import CONF_BASE_URL, DOMAIN
 from custom_components.ibok.ledger import issue_id
+from custom_components.ibok.submit import async_submit
 
 SERIAL = "12345678"
 
@@ -86,6 +88,7 @@ async def test_recording_an_unknown_outcome_raises_an_issue_and_blocks(
         "serial": SERIAL,
         "value": 48.0,
         "day": _today().isoformat(),
+        "seen": None,
     }
     with pytest.raises(ServiceValidationError) as err:
         entry.runtime_data.ledger.check(_row(entry), 50.0, _today(), _today())
@@ -134,6 +137,87 @@ async def test_the_issue_clears_when_the_portal_shows_the_reading(
 
     assert _issue(hass, entry) is None
     assert entry.runtime_data.ledger.pending(10001) is None
+
+
+async def test_the_issue_clears_when_the_portal_holds_the_submission(
+    hass, portal, setup
+) -> None:
+    """The operator's readouts change only on approval; the form shows it first."""
+    entry = await setup()
+    _record(entry)
+
+    portal.notify = [
+        {**portal.notify[0], "ido": _today().isoformat(), "isl": "48", "ist": 1}
+    ]
+    await entry.runtime_data.async_refresh()
+
+    assert _issue(hass, entry) is None
+    assert entry.runtime_data.ledger.pending(10001) is None
+
+
+async def test_the_issue_clears_when_the_portal_refused_the_submission(
+    hass, portal, setup
+) -> None:
+    entry = await setup()
+    _record(entry)
+
+    portal.notify = [
+        {
+            **portal.notify[0],
+            "ido": _today().isoformat(),
+            "isl": "48",
+            "ist": 3,
+            "iid": "8002",
+        }
+    ]
+    await entry.runtime_data.async_refresh()
+
+    assert _issue(hass, entry) is None
+    assert entry.runtime_data.ledger.pending(10001) is None
+
+
+def _refused_earlier() -> dict:
+    """The meter's row still showing an earlier refusal of the very same reading."""
+    return {
+        **METER,
+        "ido": _today().isoformat(),
+        "isl": "48.000",
+        "ist": "3",
+        "iid": "8001",
+        "tkom": "Odczyt niezgodny z poprzednim",
+    }
+
+
+async def _still_blocked(hass, entry) -> None:
+    await entry.runtime_data.async_refresh()
+    assert entry.runtime_data.ledger.pending(10001) is not None
+    assert _issue(hass, entry) is not None
+
+
+@pytest.mark.parametrize("lost", [False, True], ids=["not-shown", "no-answer"])
+async def test_an_earlier_refusal_does_not_lift_the_block(
+    hass, portal, setup, monkeypatch, lost
+) -> None:
+    """Neither on the next poll nor after a reload: it is not this one's verdict."""
+    portal.notify = [_refused_earlier()]
+    portal.verdict = "ignore"
+    entry = await setup()
+    if lost:
+
+        async def _lost(**_kwargs) -> str:
+            raise IbokOutcomeUnknownError("no answer")
+
+        monkeypatch.setattr(entry.runtime_data.api, "async_submit_reading", _lost)
+
+    with pytest.raises(HomeAssistantError) as info:
+        await async_submit(entry.runtime_data, 10001, 48)
+    assert info.value.translation_key == "outcome_unknown"
+
+    await _still_blocked(hass, entry)
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await _still_blocked(hass, entry)
 
 
 async def test_confirming_the_repair_unblocks(hass, portal, setup) -> None:

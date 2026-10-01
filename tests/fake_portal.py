@@ -6,9 +6,12 @@ answer, and a mock would only repeat what the test already assumes.
 
 The behaviour mirrors the live portal as observed: the login POST answers
 302 with an empty body back to the start page, and a submission is posted as
-multipart/form-data. To a session that is not logged in, the start page is the
-login page, the menu is an empty body, and every other module -- the
-submission included -- answers HTTP 200 with ``{"sessionExpired":true}``.
+multipart/form-data. A submission it takes shows up in the meter's row of the
+reading form as ``ido``/``isl``/``ist``; the operator's own ``do``/``sl`` stay
+as they were until somebody approves it. To a session that is not logged in,
+the start page is the login page, the menu is an empty body, and every other
+module -- the submission included -- answers HTTP 200 with
+``{"sessionExpired":true}``.
 The portal has also been seen to answer those with the login page instead,
 which ``FakePortal.expired_answer`` switches to.
 """
@@ -35,6 +38,8 @@ METER = {
     "id_wodom": 10001,
     "numer_fabryczny": "12345678",
     "sl": "45",
+    # The previous reading's own id, which a submission refers back to.
+    "io": "1234567",
     "min_zakres": "45",
     "zakres": "99999",
     "l_cyfr_l": 5,
@@ -88,11 +93,39 @@ class FakePortal:
         # answer as its body).
         self.submit_answer = "ok"
         self.away = ""
+        # What the portal makes of a submission it has recorded: "accept" files
+        # it in the meter's row with `accepted_status`, "refuse" files it as
+        # refused (status 3) with `refusal_comment`, "ignore" leaves no trace
+        # of it in the reading form at all.
+        self.verdict = "accept"
+        self.accepted_status = 1
+        self.refusal_comment = "Odczyt niezgodny z poprzednim"
 
     def expire_all(self) -> None:
         """Drop every login, as the portal does once PHPSESSID times out."""
         for sid in self.sessions:
             self.sessions[sid] = False
+
+    def _file(self, form: dict[str, str]) -> None:
+        """Show a recorded submission in its meter's row, as the live portal does."""
+        if self.verdict == "ignore":
+            return
+        for row in self.notify:
+            if str(row.get("id_wodom")) != form.get("id_wodom"):
+                continue
+            if str(row.get("ist", "")) in ("1", "2"):
+                # The live form offers no new reading while one waits or is in
+                # progress; one sent anyway is not filed.
+                continue
+            row["ido"] = form["txtDateOfReading"]
+            row["isl"] = f"{form['txtReadingNr']}.{form['txtReadingFrac']}"
+            row["iid"] = str(9000 + len(self.submissions))
+            if self.verdict == "refuse":
+                row["ist"] = "3"
+                row["tkom"] = self.refusal_comment
+            else:
+                row["ist"] = str(self.accepted_status)
+                row["tkom"] = ""
 
     def app(self) -> web.Application:
         app = web.Application()
@@ -159,6 +192,7 @@ class FakePortal:
             self.submission_content_types.append(request.content_type)
             form = await request.post()
             self.submissions.append({k: str(v) for k, v in form.items()})
+            self._file(self.submissions[-1])
             if self.submit_delay:
                 await asyncio.sleep(self.submit_delay)
             if self.submit_answer == "redirect_away":

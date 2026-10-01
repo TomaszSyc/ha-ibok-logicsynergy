@@ -409,3 +409,35 @@ async def test_the_field_empties_when_its_timer_fires_on_the_dot(
 
     field = _entity_id(hass, "number", entry, "typed_reading")
     assert hass.states.get(field).state == STATE_UNKNOWN
+
+
+async def test_a_refused_reading_comes_back_to_the_field(
+    hass, portal, setup, hass_admin_user, freezer
+) -> None:
+    """Refused, it is not on the bill: correcting it should not mean retyping."""
+    entry = await setup(options={})
+    await _type(hass, entry, 48)
+    portal.verdict = "refuse"
+
+    with pytest.raises(HomeAssistantError) as info:
+        await _send(hass, entry, hass_admin_user, freezer)
+
+    assert info.value.translation_key == "submission_refused"
+    field = _entity_id(hass, "number", entry, "typed_reading")
+    assert float(hass.states.get(field).state) == 48
+
+
+async def test_a_reading_the_portal_does_not_show_empties_the_field(
+    hass, portal, setup, hass_admin_user, freezer
+) -> None:
+    """Sent but unconfirmed, it may be on the bill; another press must not repeat it."""
+    entry = await setup(options={})
+    await _type(hass, entry, 48)
+    portal.verdict = "ignore"
+
+    with pytest.raises(HomeAssistantError) as info:
+        await _send(hass, entry, hass_admin_user, freezer)
+
+    assert info.value.translation_key == "outcome_unknown"
+    field = _entity_id(hass, "number", entry, "typed_reading")
+    assert hass.states.get(field).state == STATE_UNKNOWN

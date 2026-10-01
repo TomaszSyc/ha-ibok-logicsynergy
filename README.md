@@ -13,13 +13,8 @@ przedsiębiorstwem.
 
 ## Status
 
-Wersja wczesna, do testów. Portal nie ma publicznego API — integracja korzysta z tych
-samych zapytań, co przeglądarka. Zmiana po stronie dostawcy oprogramowania może ją
-zepsuć.
-
-**Podanie odczytu nie zostało jeszcze potwierdzone na żywym koncie.** Pobieranie danych
-tak. Odczyt trafia na fakturę, więc dopóki tego nie sprawdzimy, po wysłaniu zajrzyj do
-portalu i upewnij się, że zgłoszenie tam jest.
+Portal nie ma publicznego API — integracja korzysta z tych samych zapytań, co
+przeglądarka. Zmiana po stronie dostawcy oprogramowania może ją zepsuć.
 
 ## Instalacja
 
@@ -123,16 +118,25 @@ przyciskiem. Tuż przed wysłaniem integracja pyta portal o aktualny zakres, lic
 i poprzedni odczyt — nie ufa danym sprzed kilku godzin — więc literówka nie dojdzie do
 przedsiębiorstwa.
 
+Wysłany odczyt widać w portalu w zakładce „Zgłoszenie odczytu”, razem ze statusem. Nie ma go
+w „Odczytach” ani w aplikacji mobilnej, dopóki przedsiębiorstwo go nie zatwierdzi. Po
+wysłaniu integracja sprawdza w portalu, czy zgłoszenie tam jest, i potwierdza to
+powiadomieniem. Jeśli go nie widzi, postępuje jak przy braku odpowiedzi portalu (niżej).
+
 Integracja **odmawia powtórnego wysłania tego samego odczytu tego samego dnia**. Odmawia,
 gdy portal już ma taką wartość na ten dzień. Odmawia też, gdy sama go już dziś wysłała.
 To drugie pamięta tylko do restartu lub przeładowania integracji, a przeładowuje ją
 też każdy zapis opcji.
-Inna wartość tego samego dnia to korekta, nie powtórka, i przechodzi normalnie.
+Odmawia także każdego nowego odczytu, dopóki poprzednie zgłoszenie w portalu oczekuje albo
+jest w trakcie realizacji — poprawić albo usunąć je można w portalu, w zakładce
+„Zgłoszenie odczytu”. Inna wartość tego samego dnia przechodzi dopiero wtedy, gdy
+poprzednie zgłoszenie zostało zatwierdzone albo odrzucone.
 
 Jeśli odczyt wyszedł, a odpowiedź portalu nie dotarła, integracja **nie ponawia wysłania
 samodzielnie**: portal mógł go już zapisać, a drugi raz trafiłby na fakturę. Zamiast tego
 zakłada zgłoszenie w Ustawienia → Urządzenia i usługi → Naprawy i blokuje dalszą wysyłkę na
-ten wodomierz. Blokada zniknie sama, gdy portal przy kolejnym odpytaniu pokaże ten odczyt.
+ten wodomierz. Blokada zniknie sama, gdy portal przy kolejnym odpytaniu pokaże ten odczyt
+albo pokaże, że go odrzucił — odrzucony nie trafia na fakturę i można go wysłać ponownie.
 Inaczej sprawdź w portalu, czy odczyt tam jest, otwórz zgłoszenie i potwierdź: to też
 zdejmuje blokadę. „Zignoruj” w Naprawach tego nie robi. Zgłoszenie chowa się wtedy pod
 „pokaż zignorowane”, ale blokada zostaje, dopóki go faktycznie nie otworzysz i nie

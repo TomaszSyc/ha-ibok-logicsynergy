@@ -20,6 +20,7 @@ happened to import first.
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -34,6 +35,15 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN
 
 _ISSUE_PREFIX = "outcome_unknown_"
+
+# Statuses of the submission the reading form shows for a meter. Waiting, in
+# progress and accepted all mean the portal holds the reading; a refused one
+# is not on the bill and may be sent again. While one waits or is in progress,
+# the portal's own form offers no new reading at all -- only editing the
+# waiting one, or nothing.
+RECORDED_STATUSES = frozenset({1, 2, 4})
+UNDECIDED_STATUSES = frozenset({1, 2})
+REFUSED_STATUS = 3
 
 
 def issue_id(entry_id: str, meter_id: int) -> str:
@@ -67,6 +77,47 @@ def reading_text(value: float) -> str:
     return str(int(value)) if value == int(value) else str(value)
 
 
+def portal_date(value: Any) -> date | None:
+    """A date the portal writes, with or without a time after it.
+
+    Only the day counts wherever a reading's date is compared, and
+    ``parse_date`` gives up on anything past the date itself.
+    """
+    text = re.split(r"[\sT]", str(value or "").strip(), maxsplit=1)[0]
+    return dt_util.parse_date(text)
+
+
+def submission_status(row: Mapping[str, Any], day: date, value: float) -> int | None:
+    """The status of the reading form's submission, if it is this exact reading.
+
+    The form keeps a meter's latest internet submission apart from the
+    operator's last reading: ``ido`` is its date, ``isl`` its value and
+    ``ist`` its status. ``do`` and ``sl`` change only once the operator
+    approves it, so they alone would miss a reading that is already waiting.
+    ``None`` when the row holds no submission, or one of another reading.
+    """
+    from .coordinator import parse_number
+
+    if portal_date(row.get("ido")) != day:
+        return None
+    if parse_number(row.get("isl")) != value:
+        return None
+    return _status(row)
+
+
+def _status(row: Mapping[str, Any]) -> int | None:
+    """The status of the reading form's submission, whatever reading it is."""
+    try:
+        return int(str(row.get("ist")).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def submission_id(row: Mapping[str, Any]) -> str | None:
+    """The id of the submission the reading form shows for a meter, if any."""
+    return str(row.get("iid") or "").strip() or None
+
+
 @dataclass(frozen=True)
 class Attempt:
     """One reading the ledger has recorded, sent or still waiting on an answer."""
@@ -76,6 +127,9 @@ class Attempt:
     value: float
     day: date
     recorded_on: date
+    # The id of the submission the reading form showed before this one was
+    # sent, if any: a refusal under that id is an earlier verdict.
+    seen: str | None = None
 
 
 class SubmissionLedger:
@@ -123,10 +177,11 @@ class SubmissionLedger:
 
         Checked in this order: a pending unknown outcome blocks everything
         for its meter, whatever is being sent; then the portal's own row, in
-        case it already carries this exact reading; then this ledger's own
-        memory of what went out today.
+        case it already carries this exact reading, as the operator's or as a
+        submission it has not refused, or holds another submission still
+        undecided; then this ledger's own memory of what went out today.
         """
-        from .coordinator import meter_id, parse_number
+        from .coordinator import meter_id, meter_serial, parse_number
 
         self._forget_stale(today)
         mid = meter_id(row)
@@ -139,15 +194,30 @@ class SubmissionLedger:
                 translation_placeholders={"serial": pending.serial},
             )
 
-        previous_date = dt_util.parse_date(str(row.get("do") or "").strip())
+        previous_date = portal_date(row.get("do"))
         previous_value = parse_number(row.get("sl"))
-        if previous_date == day and previous_value == value:
+        held = submission_status(row, day, value) in RECORDED_STATUSES
+        if held or (previous_date == day and previous_value == value):
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="reading_already_recorded",
                 translation_placeholders={
                     "reading": reading_text(value),
                     "date": str(day),
+                },
+            )
+
+        if _status(row) in UNDECIDED_STATUSES:
+            # Sent anyway, it would either be dropped or sit next to the
+            # waiting one with nothing to say which the operator should take.
+            waiting = parse_number(row.get("isl"))
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="submission_waiting",
+                translation_placeholders={
+                    "serial": meter_serial(row),
+                    "reading": "-" if waiting is None else reading_text(waiting),
+                    "date": str(portal_date(row.get("ido")) or "-"),
                 },
             )
 
@@ -182,6 +252,8 @@ class SubmissionLedger:
         day: date,
         today: date,
         at: datetime,
+        *,
+        seen: str | None = None,
     ) -> None:
         """Block a meter whose last submission never got a confirmed outcome.
 
@@ -189,9 +261,11 @@ class SubmissionLedger:
         submissions for this meter until it is cleared. With ``hass``, a
         persistent Repairs issue tells the user what went out and when --
         ``at`` is the moment of sending -- and keeps the block across a
-        restart.
+        restart. ``seen`` is the id of the submission the reading form showed
+        before sending; the issue keeps it too, so a refusal under that id
+        cannot lift the block after a restart either.
         """
-        self._pending[meter_id] = Attempt(meter_id, serial, value, day, today)
+        self._pending[meter_id] = Attempt(meter_id, serial, value, day, today, seen)
         if self._hass is None:
             return
         ir.async_create_issue(
@@ -218,6 +292,7 @@ class SubmissionLedger:
                 "serial": serial,
                 "value": float(value),
                 "day": day.isoformat(),
+                "seen": seen,
             },
         )
 
@@ -235,7 +310,14 @@ class SubmissionLedger:
 
         A reading whose outcome was unknown counts as sent the moment the
         readouts or the reading form show its exact ``(day, value)`` for that
-        meter, whichever the portal updates first.
+        meter, whichever the portal updates first -- the form as the
+        operator's reading or as a submission it has not refused. A refused
+        submission of it lifts the block too, but is not counted as sent: it
+        is not on the bill, and sending it again is allowed. Only a refusal
+        under a different id than the one the form showed before sending
+        counts: the form can still show an earlier refusal of the same
+        reading, which says nothing about this one. Without ids to tell them
+        apart, the block stays until the user confirms the repair.
         """
         from .coordinator import meter_id, meter_serial, parse_number
 
@@ -244,20 +326,34 @@ class SubmissionLedger:
 
         for mid, attempt in list(self._pending.items()):
             confirmed = any(
-                dt_util.parse_date(str(entry.get("do") or "").strip()) == attempt.day
+                portal_date(entry.get("do")) == attempt.day
                 and parse_number(entry.get("sl")) == attempt.value
                 for row in readouts
                 if meter_serial(row) == attempt.serial
                 for entry in row.get("odczyty") or []
             )
+            rows = [row for row in notify if meter_id(row) == mid]
             if not confirmed:
                 confirmed = any(
-                    meter_id(row) == mid
-                    and dt_util.parse_date(str(row.get("do") or "").strip())
-                    == attempt.day
+                    portal_date(row.get("do")) == attempt.day
                     and parse_number(row.get("sl")) == attempt.value
-                    for row in notify
+                    for row in rows
                 )
+            statuses = {
+                submission_status(row, attempt.day, attempt.value) for row in rows
+            }
+            if not confirmed:
+                confirmed = bool(statuses & RECORDED_STATUSES)
+            refused = any(
+                submission_status(row, attempt.day, attempt.value) == REFUSED_STATUS
+                and (sid := submission_id(row)) is not None
+                and sid != attempt.seen
+                for row in rows
+            )
+            if not confirmed and refused:
+                del self._pending[mid]
+                self._delete_issue(mid)
+                continue
             if confirmed:
                 del self._pending[mid]
                 self._delete_issue(mid)
@@ -292,6 +388,8 @@ class SubmissionLedger:
                     float(data["value"]),
                     date.fromisoformat(str(data["day"])),
                     today,
+                    # Absent from an issue raised before ids were kept.
+                    str(data["seen"]) if data.get("seen") else None,
                 )
             except (KeyError, TypeError, ValueError):
                 continue

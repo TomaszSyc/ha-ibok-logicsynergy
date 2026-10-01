@@ -46,6 +46,7 @@ _MUST_FIND = {
     "nothing_sent_check_failed",
     "several_meters",
     "no_account",
+    "submission_refused",
 }
 
 
@@ -140,6 +141,24 @@ def test_every_exception_key_is_translated() -> None:
     assert not unresolved, f"translation keys that cannot be checked: {unresolved}"
     assert _MUST_FIND <= used, f"keys no longer found: {sorted(_MUST_FIND - used)}"
     assert used <= known, f"untranslated keys: {sorted(used - known)}"
+
+
+def test_announcement_texts_are_translated() -> None:
+    """Texts looked up by key at runtime, which the check above cannot see.
+
+    The notification that a reading reached the portal is no exception, so its
+    keys are never passed as ``translation_key``; the module lists them.
+    """
+    from custom_components.ibok.submit import TRANSLATED_TEXTS
+
+    assert TRANSLATED_TEXTS
+    for path in [
+        ROOT / "strings.json",
+        *sorted((ROOT / "translations").glob("*.json")),
+    ]:
+        exceptions = json.loads(path.read_text(encoding="utf-8"))["exceptions"]
+        missing = set(TRANSLATED_TEXTS) - set(exceptions)
+        assert not missing, f"{path.name}: untranslated texts {sorted(missing)}"
 
 
 def test_polish_translation_exists() -> None:

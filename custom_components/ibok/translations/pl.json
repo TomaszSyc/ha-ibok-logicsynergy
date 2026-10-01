@@ -143,6 +143,9 @@
     "reading_already_sent": {
       "message": "Nic nie wysłano: {reading} m³ na dzień {date} zostało już dziś wysłane."
     },
+    "submission_waiting": {
+      "message": "Nic nie wysłano: portal ma już zgłoszony odczyt {reading} m³ na dzień {date} dla wodomierza {serial}, który oczekuje albo jest w trakcie realizacji. Poprawić albo usunąć go można w portalu, w zakładce „Zgłoszenie odczytu”."
+    },
     "invalid_reading": {
       "message": "Nic nie wysłano: odczyt nie jest liczbą."
     },
@@ -196,6 +199,24 @@
     },
     "several_meters": {
       "message": "Pasuje kilka wodomierzy. Podaj meter_id, a jeśli dwa konta mają ten sam, także config_entry_id: {choices}"
+    },
+    "submission_refused": {
+      "message": "Portal odrzucił odczyt {reading} m³ na dzień {date}: {comment}. Nie trafi na fakturę; po poprawieniu można go wysłać ponownie."
+    },
+    "reading_reported_title": {
+      "message": "Odczyt wodomierza {serial} zgłoszony"
+    },
+    "reading_reported": {
+      "message": "Odczyt {reading} m³ na dzień {date} dla wodomierza {serial} dotarł do portalu, status: {status}. Portal pokazuje go w zakładce „Zgłoszenie odczytu”, a nie na liście odczytów — tam pojawi się dopiero po zatwierdzeniu przez przedsiębiorstwo."
+    },
+    "submission_status_waiting": {
+      "message": "oczekuje"
+    },
+    "submission_status_in_progress": {
+      "message": "w trakcie realizacji"
+    },
+    "submission_status_approved": {
+      "message": "zatwierdzony"
     }
   },
   "issues": {

@@ -13,13 +13,16 @@ from types import SimpleNamespace
 
 import pytest
 from fake_portal import METER, PASSWORD, USERNAME
+from homeassistant.components import persistent_notification
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ibok.api import (
     IbokApi,
+    IbokError,
     IbokOutcomeUnknownError,
     IbokResponseError,
 )
@@ -38,16 +41,31 @@ GARDEN = {"id_wodom": 10002, "numer_fabryczny": "87654321"}
 
 
 class _Coordinator:
-    """Just what async_submit touches: the API, the ledger and a refresh."""
+    """Just what async_submit touches: the API, the ledger and a refresh.
 
-    def __init__(self, api: IbokApi) -> None:
+    The refresh reads the reading form again, as the real coordinator's does,
+    and reports a failure the same way: ``last_update_success`` for the whole
+    refresh, ``failed`` for a module that alone did not answer.
+    """
+
+    def __init__(self, hass, api: IbokApi) -> None:
+        self.hass = hass
         self.api = api
         self.ledger = SubmissionLedger(None, "e1")
         self.config_entry = SimpleNamespace(entry_id="e1")
         self.refreshes = 0
+        self.data: dict = {}
+        self.failed: frozenset[str] = frozenset()
+        self.last_update_success = True
 
     async def async_refresh(self) -> None:
         self.refreshes += 1
+        try:
+            self.data = {"notify": await self.api.async_notify_readout()}
+        except IbokError:
+            self.last_update_success = False
+        else:
+            self.last_update_success = True
 
 
 # --- choosing the account and meter ---------------------------------------
@@ -155,6 +173,13 @@ def test_a_reading_dated_from_the_previous_one_to_today_is_allowed(when) -> None
     validate_date(PREVIOUS, when, TODAY)
 
 
+def test_a_previous_date_with_a_time_is_read_by_its_day() -> None:
+    with pytest.raises(ServiceValidationError) as info:
+        validate_date({"do": "2026-04-06 00:00:00"}, date(2026, 4, 5), TODAY)
+
+    assert info.value.translation_key == "reading_date_before_previous"
+
+
 def test_without_a_previous_date_only_the_future_is_refused() -> None:
     validate_date({}, date(2020, 1, 1), TODAY)
     with pytest.raises(ServiceValidationError) as info:
@@ -167,28 +192,48 @@ def test_without_a_previous_date_only_the_future_is_refused() -> None:
 
 
 @pytest.fixture
-def coordinator(portal, http_session) -> _Coordinator:
+def coordinator(hass, enable_custom_integrations, portal, http_session) -> _Coordinator:
     return _Coordinator(
+        hass,
         IbokApi(
             portal.base,
             USERNAME,
             PASSWORD,
             session=http_session,
             timeout=http_session.timeout,
-        )
+        ),
     )
 
 
 async def test_the_previous_reading_comes_from_the_portal_now(
     portal, coordinator
 ) -> None:
-    """The snapshot can be hours old; the portal's current row is what counts."""
-    portal.notify = [{**METER, "sl": "47"}]
+    """The snapshot can be hours old; the portal's current row is what counts.
+
+    The form refers to the previous reading by its id, not by its value: the
+    portal reads a value there as the number of a reading.
+    """
+    portal.notify = [{**METER, "sl": "47", "io": "7654321"}]
 
     await async_submit(coordinator, 10001, 48)
 
-    assert portal.submissions[0]["odcz_poprz"] == "47"
+    assert portal.submissions[0]["odcz_poprz"] == "7654321"
     assert coordinator.refreshes == 1
+
+
+@pytest.mark.parametrize("io", [None, "", " "])
+async def test_without_a_previous_reading_id_zero_goes_out(
+    portal, coordinator, io
+) -> None:
+    """What the portal's own form sends for a meter with no reading yet."""
+    row = {**METER, "io": io}
+    if io is None:
+        del row["io"]
+    portal.notify = [row]
+
+    await async_submit(coordinator, 10001, 48)
+
+    assert portal.submissions[0]["odcz_poprz"] == "0"
 
 
 async def test_a_meter_that_stopped_accepting_is_refused_before_sending(
@@ -251,18 +296,22 @@ def _key(info: pytest.ExceptionInfo) -> str | None:
 
 
 async def test_the_same_value_twice_is_refused(portal, coordinator) -> None:
-    """Sent once already today, it would be on the bill twice."""
+    """Sent once already today, it would be on the bill twice.
+
+    The portal holds the first one by now, which is what the refusal says.
+    """
     await async_submit(coordinator, 10001, 48)
 
     with pytest.raises(ServiceValidationError) as info:
         await async_submit(coordinator, 10001, 48)
 
-    assert _key(info) == "reading_already_sent"
+    assert _key(info) == "reading_already_recorded"
     assert len(portal.submissions) == 1
 
 
 async def test_a_different_value_the_same_day_goes_out(portal, coordinator) -> None:
-    """A correction of a mistyped reading is not a repeat."""
+    """Once the first is decided, another reading the same day is not a repeat."""
+    portal.accepted_status = 4
     await async_submit(coordinator, 10001, 48)
     await async_submit(coordinator, 10001, 49)
 
@@ -360,6 +409,241 @@ async def test_a_failed_send_is_not_remembered(
     await async_submit(coordinator, 10001, 48)
 
     assert len(portal.submissions) == 1
+
+
+# --- confirming what the portal made of it -----------------------------------
+
+
+def _notification(hass, entry_id: str = "e1", mid: int = 10001) -> dict | None:
+    # Read from where the frontend gets them: notifications are no states.
+    notifications = persistent_notification._async_get_or_create_notifications(hass)
+    return notifications.get(f"{DOMAIN}_reported_{entry_id}_{mid}")
+
+
+def _today() -> str:
+    return dt_util.now().date().isoformat()
+
+
+@pytest.mark.parametrize(
+    ("status", "text"), [(1, "waiting"), (2, "in progress"), (4, "approved")]
+)
+async def test_a_reading_the_portal_holds_is_announced(
+    hass, portal, coordinator, status, text
+) -> None:
+    portal.accepted_status = status
+
+    await async_submit(coordinator, 10001, 48)
+
+    notice = _notification(hass)
+    assert notice is not None
+    assert "12345678" in notice["title"]
+    message = notice["message"]
+    assert "48 m³" in message
+    assert _today() in message
+    assert f"status: {text}" in message
+    # Where to look for it: the operator's readouts do not show it yet.
+    assert "Zgłoszenie odczytu" in message
+    assert "{" not in message
+
+
+async def test_the_announcement_is_translated(hass, portal, coordinator) -> None:
+    hass.config.language = "pl"
+
+    await async_submit(coordinator, 10001, 48)
+
+    message = _notification(hass)["message"]
+    assert "oczekuje" in message
+    assert "Zgłoszenie odczytu" in message
+
+
+async def test_a_confirmed_reading_is_remembered_as_sent(portal, coordinator) -> None:
+    await async_submit(coordinator, 10001, 48)
+
+    with pytest.raises(ServiceValidationError) as info:
+        coordinator.ledger.check(
+            METER, 48.0, dt_util.now().date(), dt_util.now().date()
+        )
+
+    assert _key(info) == "reading_already_sent"
+
+
+async def test_a_failed_announcement_does_not_fail_a_sent_reading(
+    portal, coordinator, monkeypatch, caplog
+) -> None:
+    """The portal has it; reporting an error now would invite sending it again."""
+
+    def _broken(*_args, **_kwargs) -> None:
+        raise RuntimeError("no notifications")
+
+    monkeypatch.setattr(persistent_notification, "async_create", _broken)
+
+    assert await async_submit(coordinator, 10001, 48) == 48
+    with pytest.raises(ServiceValidationError) as info:
+        coordinator.ledger.check(
+            METER, 48.0, dt_util.now().date(), dt_util.now().date()
+        )
+    assert _key(info) == "reading_already_sent"
+    assert "no notifications" in caplog.text
+
+
+async def test_each_meter_keeps_one_announcement(hass, portal, coordinator) -> None:
+    """A later reading replaces the announcement rather than piling up another."""
+    portal.accepted_status = 4
+    await async_submit(coordinator, 10001, 48)
+    await async_submit(coordinator, 10001, 49)
+
+    notifications = persistent_notification._async_get_or_create_notifications(hass)
+    assert len(notifications) == 1
+    assert "49 m³" in _notification(hass)["message"]
+
+
+@pytest.mark.parametrize("status", [1, 2])
+async def test_a_reading_while_another_waits_is_never_sent(
+    portal, coordinator, status
+) -> None:
+    portal.accepted_status = status
+    await async_submit(coordinator, 10001, 48)
+
+    with pytest.raises(ServiceValidationError) as info:
+        await async_submit(coordinator, 10001, 49)
+
+    assert _key(info) == "submission_waiting"
+    assert len(portal.submissions) == 1
+
+
+async def test_a_refused_reading_is_reported_and_may_be_sent_again(
+    hass, portal, coordinator
+) -> None:
+    portal.verdict = "refuse"
+
+    with pytest.raises(HomeAssistantError) as info:
+        await async_submit(coordinator, 10001, 48)
+
+    assert not isinstance(info.value, ServiceValidationError)
+    assert _key(info) == "submission_refused"
+    assert info.value.translation_placeholders == {
+        "reading": "48",
+        "date": _today(),
+        "comment": "Odczyt niezgodny z poprzednim",
+    }
+    assert _notification(hass) is None
+    # Not on the bill: no block, and nothing counted as sent.
+    assert coordinator.ledger.pending(10001) is None
+
+    portal.verdict = "accept"
+    await async_submit(coordinator, 10001, 48)
+
+    assert len(portal.submissions) == 2
+
+
+async def test_a_refusal_without_a_comment_says_so(portal, coordinator) -> None:
+    portal.verdict = "refuse"
+    portal.refusal_comment = ""
+
+    with pytest.raises(HomeAssistantError) as info:
+        await async_submit(coordinator, 10001, 48)
+
+    assert info.value.translation_placeholders["comment"] == "-"
+
+
+async def test_a_reading_the_portal_does_not_show_is_an_unknown_outcome(
+    hass, portal, coordinator
+) -> None:
+    """The answer carries no verdict, so no record of it is no success either."""
+    portal.verdict = "ignore"
+
+    with pytest.raises(HomeAssistantError) as info:
+        await async_submit(coordinator, 10001, 48)
+
+    assert _key(info) == "outcome_unknown"
+    assert isinstance(info.value.__cause__, IbokOutcomeUnknownError)
+    assert coordinator.ledger.pending(10001) is not None
+    assert _notification(hass) is None
+
+
+async def test_an_earlier_refusal_of_the_same_reading_is_no_answer(
+    hass, portal, coordinator
+) -> None:
+    """The form still shows yesterday's verdict; nothing says what this one got."""
+    portal.notify = [
+        {
+            **METER,
+            "ido": _today(),
+            "isl": "48.000",
+            "ist": "3",
+            "iid": "8001",
+            "tkom": "Odczyt niezgodny z poprzednim",
+        }
+    ]
+    portal.verdict = "ignore"
+
+    with pytest.raises(HomeAssistantError) as info:
+        await async_submit(coordinator, 10001, 48)
+
+    assert _key(info) == "outcome_unknown"
+    assert coordinator.ledger.pending(10001) is not None
+
+
+def _form_reads_after_sending(portal) -> int:
+    after = portal.requests[
+        portal.requests.index(("POST", "/?module=NotifyReadout_v1&action=add")) :
+    ]
+    return after.count(("GET", "/?module=NotifyReadout_v1"))
+
+
+async def test_a_failed_refresh_reads_the_form_once_more(
+    hass, portal, coordinator, monkeypatch
+) -> None:
+    async def _failed() -> None:
+        coordinator.refreshes += 1
+        coordinator.last_update_success = False
+
+    monkeypatch.setattr(coordinator, "async_refresh", _failed)
+
+    await async_submit(coordinator, 10001, 48)
+
+    assert coordinator.ledger.pending(10001) is None
+    assert _notification(hass) is not None
+    assert _form_reads_after_sending(portal) == 1
+
+
+async def test_a_form_that_cannot_be_read_after_sending_is_an_unknown_outcome(
+    portal, coordinator, monkeypatch
+) -> None:
+    submit = coordinator.api.async_submit_reading
+
+    async def _then_broken(**kwargs) -> str:
+        answer = await submit(**kwargs)
+        portal.broken.add("NotifyReadout_v1")
+        return answer
+
+    monkeypatch.setattr(coordinator.api, "async_submit_reading", _then_broken)
+
+    with pytest.raises(HomeAssistantError) as info:
+        await async_submit(coordinator, 10001, 48)
+
+    assert _key(info) == "outcome_unknown"
+    assert coordinator.ledger.pending(10001) is not None
+
+
+async def test_a_module_that_failed_alone_is_read_once_more(
+    hass, portal, coordinator, monkeypatch
+) -> None:
+    """The coordinator kept the form from before sending; that proves nothing."""
+    before = await coordinator.api.async_notify_readout()
+
+    async def _stale() -> None:
+        coordinator.refreshes += 1
+        coordinator.data = {"notify": before}
+        coordinator.failed = frozenset({"notify"})
+
+    monkeypatch.setattr(coordinator, "async_refresh", _stale)
+
+    await async_submit(coordinator, 10001, 48)
+
+    assert coordinator.ledger.pending(10001) is None
+    assert _notification(hass) is not None
+    assert _form_reads_after_sending(portal) == 1
 
 
 # --- through Home Assistant --------------------------------------------------
@@ -476,3 +760,15 @@ async def test_a_meter_id_shared_with_an_account_that_did_not_answer_stays_ambig
 
     assert _key(info) == "several_meters"
     assert portal.submissions == other_site.submissions == []
+
+
+async def test_the_confirmation_takes_the_refresh_after_sending(
+    hass, portal, setup
+) -> None:
+    """The refresh already reads the form again; a second read would be waste."""
+    entry = await setup()
+
+    await _call_service(hass)
+
+    assert _form_reads_after_sending(portal) == 1
+    assert _notification(hass, entry.entry_id) is not None

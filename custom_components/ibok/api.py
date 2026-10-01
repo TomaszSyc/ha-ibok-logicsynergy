@@ -377,10 +377,14 @@ class IbokApi:
         meter_id: int,
         reading: float,
         reading_date: str,
-        previous: str = "",
+        previous_reading_id: str = "0",
         note: str = "",
     ) -> str:
         """Submit a reading and return the portal's answer.
+
+        ``previous_reading_id`` is the id of the reading this one follows, not
+        its value: the portal reads whatever is there as a reading's number.
+        Its own form sends ``0`` for a meter with no reading yet.
 
         The portal's own form posts into a hidden iframe, so the HTTP status
         alone does not prove the reading was accepted. What this does establish
@@ -393,7 +397,7 @@ class IbokApi:
             # The portal's own form is multipart/form-data.
             data = aiohttp.FormData(default_to_multipart=True)
             data.add_field("id_wodom", str(meter_id))
-            data.add_field("odcz_poprz", str(previous))
+            data.add_field("odcz_poprz", str(previous_reading_id))
             data.add_field("txtDateOfReading", reading_date)
             data.add_field("txtReadingNr", whole)
             data.add_field("txtReadingFrac", litres)
@@ -426,8 +430,8 @@ class IbokApi:
                 "the portal took the submission to a page of an expired session"
             )
 
-        # Kept at debug: this is what the first real submission has to show,
-        # to learn how the portal words an accepted reading.
+        # Kept at debug: the answer carries no verdict -- the reading form,
+        # read again afterwards, is what shows whether the portal has it.
         _LOGGER.debug("Portal answer to a submission: %s", body[:500])
         return body
 

@@ -14,18 +14,39 @@ from datetime import date
 from decimal import ROUND_DOWN, Decimal
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components import persistent_notification
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
 from .api import IbokError, IbokOutcomeUnknownError
 from .const import DOMAIN
 from .coordinator import fraction_digits, meter_id, meter_serial, parse_number
-from .ledger import reading_text
+from .ledger import (
+    RECORDED_STATUSES,
+    REFUSED_STATUS,
+    portal_date,
+    reading_text,
+    submission_id,
+    submission_status,
+)
 
 if TYPE_CHECKING:
     from .coordinator import IbokCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# The notification that a reading reached the portal, and the status it is
+# shown with. Kept with the exception messages, the one category of
+# strings.json that takes free text with placeholders.
+_REPORTED_TITLE = "reading_reported_title"
+_REPORTED = "reading_reported"
+_STATUS_TEXTS = {
+    1: "submission_status_waiting",
+    2: "submission_status_in_progress",
+    4: "submission_status_approved",
+}
+TRANSLATED_TEXTS = (_REPORTED_TITLE, _REPORTED, *_STATUS_TEXTS.values())
 
 
 @dataclass(frozen=True)
@@ -147,13 +168,21 @@ def validate_date(meter: dict[str, Any], when: date, today: date) -> None:
     """
     if when > today:
         raise _refuse("reading_date_future", date=when.isoformat())
-    previous = dt_util.parse_date(str(meter.get("do") or "").strip())
+    previous = portal_date(meter.get("do"))
     if previous is not None and when < previous:
         raise _refuse(
             "reading_date_before_previous",
             date=when.isoformat(),
             previous=previous.isoformat(),
         )
+
+
+def previous_reading_id(meter: dict[str, Any]) -> str:
+    """The id of the meter's previous reading, as the portal's own form sends it.
+
+    ``io`` is that reading's id; without one the form sends ``0``.
+    """
+    return str(meter.get("io") or "").strip() or "0"
 
 
 async def async_submit(
@@ -170,7 +199,7 @@ async def async_submit(
 
     The portal is asked again right before sending instead of trusting the
     coordinator's snapshot, which can be hours old. The meter's serial, the
-    dial's precision, the allowed range, the previous reading and its date all
+    dial's precision, the allowed range, the previous reading's id and date all
     come from that answer, and fetching it also renews a session that expired
     since the last poll.
 
@@ -182,6 +211,12 @@ async def async_submit(
     Only one submission per meter runs at a time, and the ledger refuses one
     the portal already has, one already sent today and any while the outcome
     of an earlier one is still unknown.
+
+    The portal's answer to the form carries no verdict, so a reading counts as
+    sent only once the reading form, read again afterwards, shows it as the
+    meter's submission. Shown as refused, nothing is recorded and the user is
+    told why. Not shown at all, it may still have been recorded, so it is
+    handled like a submission whose answer never arrived.
     """
     if not math.isfinite(reading):
         raise _refuse("invalid_reading")
@@ -231,27 +266,126 @@ async def async_submit(
         ledger.check(row, value, when, today)
 
         sent_at = dt_util.utcnow()
+        seen = submission_id(row)
         try:
             await coordinator.api.async_submit_reading(
                 meter_id=target_id,
                 reading=value,
                 reading_date=when.isoformat(),
-                previous=str(row.get("sl", "") or ""),
+                previous_reading_id=previous_reading_id(row),
                 note=note,
             )
         except IbokOutcomeUnknownError as err:
-            ledger.record_unknown(target_id, serial, value, when, today, sent_at)
+            ledger.record_unknown(
+                target_id, serial, value, when, today, sent_at, seen=seen
+            )
             raise _failure(
                 "outcome_unknown", serial=serial, reading=reading_text(value)
             ) from err
         except IbokError as err:
             raise _failure("nothing_recorded", error=str(err)) from err
 
-        ledger.record_sent(target_id, serial, value, when, today)
         # A real refresh: async_request_refresh is debounced and may return
-        # without asking the portal at all.
+        # without asking the portal at all. It reads the reading form again,
+        # which is where the portal files a submission.
         await coordinator.async_refresh()
+        after = await _rows_after_sending(coordinator)
+        fresh = next((r for r in after or [] if meter_id(r) == target_id), None)
+        status = None if fresh is None else submission_status(fresh, when, value)
+
+        refused_now = (sid := submission_id(fresh or {})) is not None and sid != seen
+        if status == REFUSED_STATUS and refused_now:
+            raise _failure(
+                "submission_refused",
+                reading=reading_text(value),
+                date=when.isoformat(),
+                comment=str(fresh.get("tkom") or "").strip() or "-",
+            )
+        if status not in RECORDED_STATUSES:
+            # Includes a refusal under the id the form already showed before
+            # sending, or one without an id to tell it apart: that may be the
+            # verdict on an earlier submission, not on this one.
+            ledger.record_unknown(
+                target_id, serial, value, when, today, sent_at, seen=seen
+            )
+            raise _failure(
+                "outcome_unknown", serial=serial, reading=reading_text(value)
+            ) from IbokOutcomeUnknownError(
+                "the reading form shows no record of the submission"
+            )
+
+        ledger.record_sent(target_id, serial, value, when, today)
+        try:
+            await _announce_reported(
+                coordinator, target_id, serial, value, when, status
+            )
+        except Exception:
+            # The portal has the reading. An error raised now would read as a
+            # failed submission and invite sending it again.
+            _LOGGER.exception(
+                "Reading %s for meter %s was reported, but the notification failed",
+                reading_text(value),
+                serial,
+            )
     return value
+
+
+async def _rows_after_sending(
+    coordinator: IbokCoordinator,
+) -> list[dict[str, Any]] | None:
+    """The reading form as the portal shows it now, or ``None`` if unreadable.
+
+    The refresh that just ran has read it already. Only if that refresh, or
+    the form within it, failed is it asked once more: the coordinator then
+    still holds the form from before sending, which proves nothing.
+    """
+    if coordinator.last_update_success and "notify" not in coordinator.failed:
+        return list((coordinator.data or {}).get("notify") or [])
+    try:
+        return await coordinator.api.async_notify_readout()
+    except IbokError as err:
+        _LOGGER.warning("The reading form could not be read after sending: %s", err)
+        return None
+
+
+async def _announce_reported(
+    coordinator: IbokCoordinator,
+    target_id: int,
+    serial: str,
+    value: float,
+    day: date,
+    status: int,
+) -> None:
+    """Tell the user the portal has the reading, and where it shows.
+
+    One notification per meter, replaced by the next one: a corrected reading
+    leaves only the latest announcement. The operator's readouts, and its
+    mobile app, show a submission only once it is approved, so without this
+    a user checking there would see nothing and send it again.
+    """
+    hass = coordinator.hass
+    texts = await async_get_translations(
+        hass, hass.config.language, "exceptions", [DOMAIN]
+    )
+
+    def text(key: str, **placeholders: str) -> str:
+        message = texts.get(f"component.{DOMAIN}.exceptions.{key}.message", key)
+        return message.format(**placeholders)
+
+    persistent_notification.async_create(
+        hass,
+        text(
+            _REPORTED,
+            serial=serial,
+            reading=reading_text(value),
+            date=day.isoformat(),
+            status=text(_STATUS_TEXTS[status]),
+        ),
+        title=text(_REPORTED_TITLE, serial=serial),
+        notification_id=(
+            f"{DOMAIN}_reported_{coordinator.config_entry.entry_id}_{target_id}"
+        ),
+    )
 
 
 def _as_int(value: Any) -> int | None:

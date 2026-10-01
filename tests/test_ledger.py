@@ -164,3 +164,156 @@ async def test_locks_are_per_meter() -> None:
 
     async with ledger.lock(10001), ledger.lock(10002):
         pass  # no raise: a different meter is never busy
+
+
+# --- the portal's own record of a submission ---------------------------------
+#
+# The reading form keeps a meter's latest submission apart from the operator's
+# reading: ``ido`` its date, ``isl`` its value, ``ist`` its status (1 waiting,
+# 2 in progress, 3 refused, 4 accepted). ``do`` and ``sl`` change only once the
+# operator approves it.
+
+
+def _held(ist, ido: str = "2026-04-20", isl: str = "48") -> dict:
+    return {**ROW, "ido": ido, "isl": isl, "ist": ist}
+
+
+@pytest.mark.parametrize(
+    "ist", [1, 2, 4, "2", " 4 "], ids=["1", "2", "4", "str", "padded"]
+)
+def test_a_submission_the_portal_holds_is_refused(ist) -> None:
+    ledger = SubmissionLedger(None, "e1")
+
+    assert _key(ledger.check, _held(ist), 48.0, TODAY, TODAY) == (
+        "reading_already_recorded"
+    )
+
+
+def test_a_held_submission_is_compared_as_a_number() -> None:
+    ledger = SubmissionLedger(None, "e1")
+
+    assert _key(ledger.check, _held(1, isl="48,000"), 48.0, TODAY, TODAY) == (
+        "reading_already_recorded"
+    )
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        _held(3),
+        _held(4, ido="2026-04-19"),
+        _held(4, isl="47"),
+        _held(3, isl="47"),
+        _held(None),
+        _held("brak"),
+    ],
+    ids=[
+        "refused",
+        "another-day",
+        "another-value",
+        "refused-another-value",
+        "no-status",
+        "bad-status",
+    ],
+)
+def test_a_submission_the_portal_does_not_hold_passes(row) -> None:
+    """A refused one may be sent again; another day or value is another reading."""
+    ledger = SubmissionLedger(None, "e1")
+
+    ledger.check(row, 48.0, TODAY, TODAY)  # no raise
+
+
+@pytest.mark.parametrize("ist", [1, 2, "2"], ids=["waiting", "in-progress", "str"])
+@pytest.mark.parametrize(
+    ("ido", "isl"),
+    [("2026-04-20", "47"), ("2026-04-19", "48")],
+    ids=["another-value", "another-day"],
+)
+def test_a_reading_while_another_waits_is_refused(ist, ido, isl) -> None:
+    """The portal's own form offers only editing it, or nothing, until it is decided."""
+    ledger = SubmissionLedger(None, "e1")
+    row = _held(ist, ido=ido, isl=isl)
+
+    with pytest.raises(ServiceValidationError) as info:
+        ledger.check(row, 48.0, TODAY, TODAY)
+
+    assert info.value.translation_key == "submission_waiting"
+    assert info.value.translation_placeholders == {
+        "serial": "12345678",
+        "reading": isl,
+        "date": ido,
+    }
+
+
+@pytest.mark.parametrize("ist", [1, 2, 4])
+def test_reconcile_confirms_from_the_submission_record(ist) -> None:
+    ledger = SubmissionLedger(None, "e1")
+    ledger.record_unknown(10001, "12345678", 48.0, TODAY, TODAY, AT)
+
+    ledger.reconcile({"readouts": [], "notify": [_held(ist)]}, TODAY)
+
+    assert ledger.pending(10001) is None
+    assert _key(ledger.check, ROW, 48.0, TODAY, TODAY) == "reading_already_sent"
+
+
+def test_reconcile_lifts_the_block_of_a_refused_submission() -> None:
+    """Refused, it is not on the bill: no block, and nothing counts as sent."""
+    ledger = SubmissionLedger(None, "e1")
+    ledger.record_unknown(10001, "12345678", 48.0, TODAY, TODAY, AT)
+
+    ledger.reconcile({"readouts": [], "notify": [{**_held(3), "iid": "8002"}]}, TODAY)
+
+    assert ledger.pending(10001) is None
+    ledger.check(ROW, 48.0, TODAY, TODAY)  # no raise
+
+
+@pytest.mark.parametrize("seen", ["8001", None], ids=["same-id", "no-ids"])
+def test_reconcile_keeps_the_block_over_the_refusal_seen_before_sending(seen) -> None:
+    """The form still showing that refusal says nothing about what was sent since."""
+    ledger = SubmissionLedger(None, "e1")
+    ledger.record_unknown(10001, "12345678", 48.0, TODAY, TODAY, AT, seen=seen)
+    row = {**_held(3), "iid": seen} if seen else _held(3)
+
+    ledger.reconcile({"readouts": [], "notify": [row]}, TODAY)
+
+    assert ledger.pending(10001) is not None
+
+
+def test_reconcile_confirms_a_held_submission_whatever_was_seen() -> None:
+    ledger = SubmissionLedger(None, "e1")
+    ledger.record_unknown(10001, "12345678", 48.0, TODAY, TODAY, AT, seen="8001")
+
+    ledger.reconcile({"readouts": [], "notify": [{**_held(1), "iid": "8001"}]}, TODAY)
+
+    assert ledger.pending(10001) is None
+
+
+def test_reconcile_ignores_a_submission_of_another_reading() -> None:
+    ledger = SubmissionLedger(None, "e1")
+    ledger.record_unknown(10001, "12345678", 48.0, TODAY, TODAY, AT)
+
+    ledger.reconcile({"readouts": [], "notify": [_held(3, isl="47")]}, TODAY)
+
+    assert ledger.pending(10001) is not None
+
+
+@pytest.mark.parametrize("stamp", ["2026-04-20 00:00:00", "2026-04-20T12:00:00"])
+def test_a_portal_date_with_a_time_is_read_by_its_day(stamp) -> None:
+    ledger = SubmissionLedger(None, "e1")
+
+    assert _key(ledger.check, _held(4, ido=stamp), 48.0, TODAY, TODAY) == (
+        "reading_already_recorded"
+    )
+    row = {**METER, "do": stamp, "sl": "48"}
+    assert _key(ledger.check, row, 48.0, TODAY, TODAY) == "reading_already_recorded"
+
+
+def test_reconcile_reads_a_submission_date_with_a_time() -> None:
+    ledger = SubmissionLedger(None, "e1")
+    ledger.record_unknown(10001, "12345678", 48.0, TODAY, TODAY, AT)
+
+    ledger.reconcile(
+        {"readouts": [], "notify": [_held(1, ido="2026-04-20 00:00:00")]}, TODAY
+    )
+
+    assert ledger.pending(10001) is None
