@@ -6,10 +6,10 @@ pytest==9.0.3
 # Home Assistant is here so CI imports the integration against the real thing. That is what
 # catches a helper being renamed or removed upstream -- otherwise the first sign is somebody's
 # instance refusing to load the integration after an update.
-homeassistant==2026.9.3
+homeassistant==2026.9.4
 
-# This pins exact versions of Home Assistant AND of pytest itself -- 0.13.366 pins
-# homeassistant 2026.9.3 and pytest 9.0.3. Taking the newest pytest from PyPI instead makes
+# This pins exact versions of Home Assistant AND of pytest itself -- 0.13.367 pins
+# homeassistant 2026.9.4 and pytest 9.0.3. Taking the newest pytest from PyPI instead makes
 # pip refuse to resolve anything at all. test_pins.py compares every pin above against what
 # this package demands, so the mismatch fails a test rather than a CI install.
-pytest-homeassistant-custom-component==0.13.366
+pytest-homeassistant-custom-component==0.13.367
