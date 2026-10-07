@@ -12,4 +12,4 @@ homeassistant==2026.9.4
 # homeassistant 2026.9.4 and pytest 9.0.3. Taking the newest pytest from PyPI instead makes
 # pip refuse to resolve anything at all. test_pins.py compares every pin above against what
 # this package demands, so the mismatch fails a test rather than a CI install.
-pytest-homeassistant-custom-component==0.13.367
+pytest-homeassistant-custom-component==0.13.368
