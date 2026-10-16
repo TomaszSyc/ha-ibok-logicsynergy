@@ -5,6 +5,12 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # CodeQL's init and analyze must be the same version -- analyze refuses to run on a
+    # configuration another version wrote. Bumped in separate pull requests, both fail.
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action*"
 
   # Each bump of pytest-homeassistant-custom-component is a pull request that asks one
   # question: does the integration still import against the Home Assistant it pins?
