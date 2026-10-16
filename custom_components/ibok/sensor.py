@@ -107,7 +107,7 @@ def _to_date(value: Any) -> date | None:
         try:
             # A reading date is a civil date with no time of day. Attaching a
             # timezone to it would invent precision the portal never sent.
-            return datetime.strptime(text, fmt).date()  # noqa: DTZ007
+            return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
     return None
