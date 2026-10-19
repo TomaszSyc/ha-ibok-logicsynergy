@@ -113,6 +113,9 @@
     "type_reading_first": {
       "message": "Najpierw wpisz stan licznika w polu Odczyt do wysłania, potem naciśnij ponownie."
     },
+    "meter_replaced_confirm_source": {
+      "message": "Nic nie wysłano: wodomierz {serial} wymieniono {date}. Zanim wyślesz odczyt z nakładki, potwierdź w Naprawach, że liczy już nowy licznik."
+    },
     "typed_reading_stale": {
       "message": "Odczyt wpisano ponad dobę temu. Wpisz go ponownie przed wysłaniem."
     },
@@ -227,6 +230,17 @@
           "confirm": {
             "title": "Sprawdź odczyt w portalu",
             "description": "Odczyt {reading} m³ na dzień {date} dla wodomierza {serial} został wysłany {sent_date} o {time}, ale odpowiedź portalu nie dotarła, więc nie wiadomo, czy portal go zapisał.\n\nSprawdź w portalu, czy odczyt tam jest, a potem potwierdź tutaj. Do tego czasu żaden kolejny odczyt dla tego wodomierza nie zostanie wysłany."
+          }
+        }
+      }
+    },
+    "meter_replaced": {
+      "title": "Wodomierz {serial} został wymieniony",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Ustaw nakładkę na nowym liczniku",
+            "description": "Portal pokazuje nowy licznik pod numerem {serial} od {date}. Encja wskazana jako źródło tego licznika była skonfigurowana na starym, więc jej odczyty byłyby dla nowego błędne.\n\nPrzełóż nakładkę na nowy licznik i ustaw ją od nowa, a potem potwierdź tutaj. Do tego czasu odczyt ze źródła nie zostanie wysłany. Żeby w międzyczasie wysłać odczyt wpisany ręcznie, usuń źródło tego licznika w opcjach integracji. Potwierdzenie przeładowuje integrację; zignorowanie tego zgłoszenia nie zdejmuje blokady."
           }
         }
       }

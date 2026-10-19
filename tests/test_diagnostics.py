@@ -7,6 +7,7 @@ import json
 from fake_portal import METER, PASSWORD, USERNAME
 
 from custom_components.ibok.api import IbokConnectionError
+from custom_components.ibok.const import CONF_REPLACEMENT_CONFIRMED_PREFIX
 from custom_components.ibok.diagnostics import (
     _mask_option_key,
     async_get_config_entry_diagnostics,
@@ -41,6 +42,13 @@ def test_a_serial_with_letters_is_masked_in_option_keys() -> None:
 
 def test_a_short_id_is_masked() -> None:
     assert _mask_option_key("source_entity_812") == "source_entity_999"
+
+
+def test_a_replacement_confirmation_key_is_masked() -> None:
+    assert (
+        _mask_option_key(f"{CONF_REPLACEMENT_CONFIRMED_PREFIX}12345678")
+        == f"{CONF_REPLACEMENT_CONFIRMED_PREFIX}99999999"
+    )
 
 
 def test_a_key_without_the_prefix_is_left_alone() -> None:
@@ -113,3 +121,22 @@ async def test_diagnostics_do_not_need_the_portal_to_answer(
 
     assert result["portal_modules"] == "not available: IbokConnectionError"
     assert result["data"] is not None
+
+
+async def test_diagnostics_mask_the_serial_in_every_option_key(
+    hass, portal, setup
+) -> None:
+    entry = await setup(
+        options={
+            f"source_entity_{SERIAL}": "sensor.woda",
+            f"{CONF_REPLACEMENT_CONFIRMED_PREFIX}{SERIAL}": "2026-06-03",
+        }
+    )
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["entry"]["options"] == {
+        "source_entity_99999999": "xxxxxx.xxxx",
+        "replacement_confirmed_99999999": "9999-99-99",
+    }
+    assert SERIAL not in json.dumps(result["entry"]["options"])

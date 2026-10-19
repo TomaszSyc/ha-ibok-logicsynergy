@@ -113,6 +113,9 @@
     "type_reading_first": {
       "message": "Type the meter reading into Reading to send first, then press again."
     },
+    "meter_replaced_confirm_source": {
+      "message": "Nothing was sent: meter {serial} was replaced on {date}. Confirm in Repairs that the radio overlay reads the new meter before a reading is sent from it."
+    },
     "typed_reading_stale": {
       "message": "The reading was typed more than a day ago. Type it again before sending."
     },
@@ -227,6 +230,17 @@
           "confirm": {
             "title": "Check the reading on the portal",
             "description": "The reading of {reading} m³ for {date} on meter {serial} went out on {sent_date} at {time}, but the portal's answer never arrived, so it is not known whether the portal recorded it.\n\nCheck on the portal whether the reading is there, then confirm here. Until you do, no further reading is sent for this meter."
+          }
+        }
+      }
+    },
+    "meter_replaced": {
+      "title": "Meter {serial} was replaced",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Set the overlay up for the new meter",
+            "description": "The portal shows a new meter under number {serial} from {date}. The entity chosen as this meter's source was set up on the old one, so its readings would be wrong for the new meter.\n\nMove the overlay to the new meter and set it up again, then confirm here. Until you do, no reading is sent from the source. To send a reading typed by hand in the meantime, remove this meter's source in the integration's options. Confirming reloads the integration; ignoring this issue does not lift the block."
           }
         }
       }

@@ -19,12 +19,17 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import IbokConfigEntry
-from .coordinator import IbokCoordinator, meter_serial, parse_number
+from .coordinator import (
+    IbokCoordinator,
+    meter_serial,
+    parse_date,
+    parse_number,
+    readouts_for,
+)
 from .entity import IbokEntity
+from .replacement import current_meter
 
 _LOGGER = logging.getLogger(__name__)
-
-_DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%Y-%m-%d %H:%M:%S")
 
 # Invoice lines are told apart by name. A sewage line can mention water, as in
 # "odprowadzanie wód opadowych", so sewage is looked for first.
@@ -101,18 +106,6 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(_add_new_meters))
 
 
-def _to_date(value: Any) -> date | None:
-    text = str(value or "").strip()
-    for fmt in _DATE_FORMATS:
-        try:
-            # A reading date is a civil date with no time of day. Attaching a
-            # timezone to it would invent precision the portal never sent.
-            return datetime.strptime(text, fmt).date()
-        except ValueError:
-            continue
-    return None
-
-
 def latest_invoice(invoices: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] | None:
     """The invoice issued last, by its issue date and not its list position.
 
@@ -123,7 +116,7 @@ def latest_invoice(invoices: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] |
     invoices = list(invoices)
     if not invoices:
         return None
-    return max(invoices, key=lambda row: _to_date(row.get("nw")) or date.min)
+    return max(invoices, key=lambda row: parse_date(row.get("nw")) or date.min)
 
 
 def latest_payable_invoice(
@@ -139,11 +132,11 @@ def latest_payable_invoice(
         row
         for row in invoices
         if (parse_number(row.get("brutto")) or 0) > 0
-        and _to_date(row.get("nt")) is not None
+        and parse_date(row.get("nt")) is not None
     ]
     if not payable:
         return None
-    return max(payable, key=lambda row: _to_date(row.get("nw")) or date.min)
+    return max(payable, key=lambda row: parse_date(row.get("nw")) or date.min)
 
 
 def _vat_rate(value: Any) -> float | None:
@@ -203,7 +196,7 @@ def current_unit_prices(
     longer apply.
     """
     newest_first = sorted(
-        invoices, key=lambda row: _to_date(row.get("nw")) or date.min, reverse=True
+        invoices, key=lambda row: parse_date(row.get("nw")) or date.min, reverse=True
     )
     for invoice in newest_first:
         prices = unit_prices(invoice)
@@ -247,20 +240,6 @@ def _meter_row(coordinator: IbokCoordinator, serial: str) -> dict[str, Any] | No
         if meter_serial(row) == serial:
             return row
     return None
-
-
-def _readouts_for(coordinator: IbokCoordinator, serial: str) -> list[dict[str, Any]]:
-    """Readouts for one meter, oldest first.
-
-    The portal does not promise an order, so they are sorted by date here
-    rather than trusting the position in the list.
-    """
-    for row in coordinator.data.get("readouts") or []:
-        if meter_serial(row) != serial:
-            continue
-        rows = [r for r in row.get("odczyty", []) if isinstance(r, dict)]
-        return sorted(rows, key=lambda r: _to_date(r.get("do")) or date.min)
-    return []
 
 
 class IbokBalanceSensor(IbokEntity, SensorEntity):
@@ -333,7 +312,7 @@ class IbokPaymentDueSensor(IbokEntity, SensorEntity):
     @property
     def native_value(self) -> date | None:
         invoice = latest_payable_invoice(self.coordinator.data.get("invoices") or [])
-        return _to_date(invoice.get("nt")) if invoice else None
+        return parse_date(invoice.get("nt")) if invoice else None
 
 
 class _MeterSensor(IbokEntity, SensorEntity):
@@ -346,7 +325,7 @@ class _MeterSensor(IbokEntity, SensorEntity):
         self._serial = serial
 
     def _last(self) -> dict[str, Any] | None:
-        rows = _readouts_for(self.coordinator, self._serial)
+        rows = readouts_for(self.coordinator.data, self._serial)
         return rows[-1] if rows else None
 
 
@@ -354,11 +333,16 @@ class IbokLastReadingSensor(_MeterSensor):
     """Meter reading as registered by the operator.
 
     The portal can itself show a correction lower than an earlier reading --
-    a re-read, a misrecorded value fixed later -- and Home Assistant's
-    long-term statistics never let a total-increasing sensor go backwards.
-    The state is therefore the highest reading the portal has ever recorded
-    for this meter, not necessarily the latest one; ``portal_reading`` and
-    ``corrected`` say when the two differ.
+    a re-read, a misrecorded value fixed later. The state is therefore the
+    highest reading of the meter now installed, not necessarily the latest
+    one, so a correction does not pull a total-increasing sensor down;
+    ``portal_reading`` and ``corrected`` say when the two differ. A swapped
+    meter that kept its serial starts a new count. Home Assistant records a
+    reset only for a drop of more than a tenth below the previous state, and
+    that is the drop this sensor treats as a new meter. A swap the portal's
+    removal entry marks with a smaller drop (a new meter already at 90% or
+    more of the old total) is a negative change to the statistics, while a
+    correction under a tenth within one meter stays held at the highest.
     """
 
     _attr_translation_key = "last_reading"
@@ -375,7 +359,7 @@ class IbokLastReadingSensor(_MeterSensor):
         return max(values) if values else None
 
     def _values(self) -> list[float]:
-        rows = _readouts_for(self.coordinator, self._serial)
+        rows = current_meter(readouts_for(self.coordinator.data, self._serial)).rows
         return [v for r in rows if (v := parse_number(r.get("sl"))) is not None]
 
     @property
@@ -394,6 +378,9 @@ class IbokLastReadingSensor(_MeterSensor):
             "type": last.get("typ"),
             "portal_reading": portal_reading,
             "corrected": corrected,
+            "replaced_on": current_meter(
+                readouts_for(self.coordinator.data, self._serial)
+            ).replaced_on,
         }
 
 
@@ -421,11 +408,11 @@ class IbokLastConsumptionSensor(_MeterSensor):
         total, and every smaller month becomes a negative change in the
         long-term statistics.
         """
-        rows = _readouts_for(self.coordinator, self._serial)
+        rows = readouts_for(self.coordinator.data, self._serial)
         if not rows:
             return None
         start = rows[-2] if len(rows) > 1 else rows[-1]
-        day = _to_date(start.get("do"))
+        day = parse_date(start.get("do"))
         return dt_util.start_of_local_day(day) if day else None
 
 
@@ -545,7 +532,7 @@ class IbokLegalisationSensor(_MeterSensor):
     @property
     def native_value(self) -> date | None:
         row = _meter_row(self.coordinator, self._serial) or {}
-        return _to_date(row.get("leg_do"))
+        return parse_date(row.get("leg_do"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

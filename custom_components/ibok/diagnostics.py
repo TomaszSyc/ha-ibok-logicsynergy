@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant
 
 from . import IbokConfigEntry
 from .api import IbokError
-from .const import CONF_SOURCE_ENTITY_PREFIX
+from .const import CONF_REPLACEMENT_CONFIRMED_PREFIX, CONF_SOURCE_ENTITY_PREFIX
 
 # Enough items of a list to show its shape; the rest are only counted.
 _MAX_ITEMS = 3
@@ -76,10 +76,12 @@ def _mask_option_key(key: str) -> str:
     """An option key with only the meter serial after its prefix masked.
 
     The prefix itself is a fixed field name, not data, so it is kept exact;
-    everything after it (the serial) is masked like any other value.
+    everything after it (the serial) is masked like any other value. Every
+    per-meter option key carries the serial, so each prefix needs this.
     """
-    if key.startswith(CONF_SOURCE_ENTITY_PREFIX):
-        return CONF_SOURCE_ENTITY_PREFIX + mask(key[len(CONF_SOURCE_ENTITY_PREFIX) :])
+    for prefix in (CONF_SOURCE_ENTITY_PREFIX, CONF_REPLACEMENT_CONFIRMED_PREFIX):
+        if key.startswith(prefix):
+            return prefix + mask(key[len(prefix) :])
     return key
 
 

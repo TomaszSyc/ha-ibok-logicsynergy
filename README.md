@@ -70,10 +70,10 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
 - **Ostatnia faktura** — kwota brutto ostatnio wystawionej faktury, z kwotą netto i VAT
   w atrybutach
 - **Termin płatności** — do kiedy zapłacić ostatnią fakturę
-- **Wodomierz N — stan** — najwyższy odczyt, jaki portal kiedykolwiek zarejestrował dla
-  tego wodomierza; nie spada, nawet gdy portal pokaże korektę niższą od poprzedniego
-  odczytu. Ostatni odczyt portalu i to, czy jest korektą, są w atrybutach
-  `portal_reading` i `corrected`
+- **Wodomierz N — stan** — najwyższy odczyt od ostatniej wymiany licznika; nie spada, nawet
+  gdy portal pokaże korektę niższą od poprzedniego odczytu. Ostatni odczyt portalu, to,
+  czy jest korektą, i data pierwszego odczytu nowego licznika po wymianie są w atrybutach
+  `portal_reading`, `corrected` i `replaced_on`
 - **Wodomierz N — zużycie** — zużycie w ostatnim okresie rozliczeniowym
 - **Wodomierz N — cena za m³** — woda i ścieki brutto z ostatniej faktury, w takiej
   części, w jakiej przedsiębiorstwo rozlicza ten wodomierz
@@ -90,6 +90,21 @@ wysłaniem i tak pyta portal od nowa. Działa nawet wtedy, gdy akurat ten moduł
 przy zwykłym odpytywaniu. Nowy wodomierz dostaje swój przycisk dopiero, gdy ten moduł
 odpowie choć raz; wodomierz, który pojawi się w portalu później, na przykład po wymianie,
 dostaje encje przy najbliższym odpytaniu, bez restartu.
+
+### Wodomierz wymieniony pod tym samym numerem
+
+Stan liczy się od pierwszego odczytu nowego licznika, a `replaced_on` podaje jego datę.
+Zużycie od wymiany trafia do panelu Energii jednym skokiem w dniu, w którym integracja
+pierwszy raz zobaczy nowy licznik — przy wymianie sprzed aktualizacji jest to dzień
+aktualizacji. Gdy nowy licznik zdążył już dojść do co najmniej 90% stanu starego (zdarza
+się przy małym liczniku ogrodowym), Home Assistant zapisze zamiast skoku wartość ujemną.
+Oba przypadki poprawisz w Narzędzia deweloperskie → Statystyki.
+
+Wodomierz z encją źródłową nie wyśle z niej nic, dopóki nie potwierdzisz wymiany
+w Naprawach. Potwierdzenie przeładowuje integrację, więc odczyt wpisany ręcznie dla innego
+wodomierza trzeba wpisać od nowa; zignorowanie zgłoszenia nie zdejmuje blokady. Żeby
+w międzyczasie wysłać odczyt wpisany ręcznie, usuń źródło tego wodomierza w opcjach
+integracji.
 
 ### Koszt wody w panelu Energii
 

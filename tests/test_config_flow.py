@@ -161,3 +161,16 @@ async def test_a_wrong_password_is_reported_as_one(
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "invalid_auth"}
+
+
+def test_the_options_form_keeps_a_confirmation():
+    existing = {
+        "source_entity_12345678": "sensor.woda",
+        "replacement_confirmed_12345678": "2026-06-03",
+    }
+
+    merged = merge_options(
+        existing, ["source_entity_12345678"], {"source_entity_12345678": "sensor.woda"}
+    )
+
+    assert merged["replacement_confirmed_12345678"] == "2026-06-03"

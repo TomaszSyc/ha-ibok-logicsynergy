@@ -37,6 +37,7 @@ from .const import (
 )
 from .coordinator import IbokCoordinator
 from .ledger import remove_issues
+from .replacement import remove_replacement_issues, sync_replacement_issues
 from .submit import Account, async_submit, resolve_target
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,6 +108,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: IbokConfigEntry) -> bool
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
+
+    def _sync_replacements() -> None:
+        sync_replacement_issues(hass, entry.entry_id, entry.options, coordinator.data)
+
+    _sync_replacements()
+    entry.async_on_unload(coordinator.async_add_listener(_sync_replacements))
     entry.async_on_unload(entry.add_update_listener(_async_reload))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -121,6 +128,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: IbokConfigEntry) -> boo
 async def async_remove_entry(hass: HomeAssistant, entry: IbokConfigEntry) -> None:
     """Drop the removed account's Repairs issues; nothing is left to confirm."""
     remove_issues(hass, entry.entry_id)
+    remove_replacement_issues(hass, entry.entry_id)
 
 
 async def _async_reload(hass: HomeAssistant, entry: IbokConfigEntry) -> None:

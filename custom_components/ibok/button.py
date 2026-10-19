@@ -18,9 +18,15 @@ from homeassistant.util.unit_conversion import VolumeConverter
 from . import IbokConfigEntry
 from .api import IbokOutcomeUnknownError
 from .const import CONF_SOURCE_ENTITY_PREFIX, DOMAIN
-from .coordinator import IbokCoordinator, fraction_digits, meter_id, meter_serial
+from .coordinator import (
+    IbokCoordinator,
+    fraction_digits,
+    meter_id,
+    meter_serial,
+)
 from .entity import IbokEntity
 from .ledger import reading_text
+from .replacement import pending_replacement
 from .submit import async_submit, truncate_to_dial
 
 _LOGGER = logging.getLogger(__name__)
@@ -291,6 +297,25 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
         source = entry.options.get(f"{CONF_SOURCE_ENTITY_PREFIX}{self._serial}")
         now = dt_util.utcnow()
         if source:
+            # Only the source is held back: its overlay was calibrated on the
+            # old meter and may still count it, while a person typing a
+            # reading reads the new meter off the dial.
+            unconfirmed = pending_replacement(
+                self.hass,
+                entry.entry_id,
+                entry.options,
+                self.coordinator.data,
+                self._serial,
+            )
+            if unconfirmed is not None:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="meter_replaced_confirm_source",
+                    translation_placeholders={
+                        "serial": self._serial,
+                        "date": unconfirmed,
+                    },
+                )
             started_at = self.hass.data.get(DOMAIN, {}).get("started_at")
             value, reported = source_reading(
                 self.hass.states.get(source), now, started_at

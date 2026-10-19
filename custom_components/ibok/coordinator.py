@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -79,6 +79,36 @@ def meter_serial(row: Mapping[str, Any]) -> str:
     """
     serial = str(row.get("numer_fabryczny") or row.get("numer_fabr") or "").strip()
     return serial or str(row.get("id_wodom") or "").strip()
+
+
+DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%Y-%m-%d %H:%M:%S")
+
+
+def parse_date(value: Any) -> date | None:
+    text = str(value or "").strip()
+    for fmt in DATE_FORMATS:
+        try:
+            # A reading date is a civil date with no time of day. Attaching a
+            # timezone to it would invent precision the portal never sent.
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def readouts_for(data: Mapping[str, Any], serial: str) -> list[dict[str, Any]]:
+    """Readouts for one meter, oldest first.
+
+    The portal does not promise an order, so they are sorted by date here
+    rather than trusting the position in the list. The sort is stable, so
+    rows sharing a day keep the order the portal gave them.
+    """
+    for row in data.get("readouts") or []:
+        if meter_serial(row) != serial:
+            continue
+        rows = [r for r in row.get("odczyty") or [] if isinstance(r, dict)]
+        return sorted(rows, key=lambda r: parse_date(r.get("do")) or date.min)
+    return []
 
 
 def fraction_digits(meter: Mapping[str, Any] | None) -> int:

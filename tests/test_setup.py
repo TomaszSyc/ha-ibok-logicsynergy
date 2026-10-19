@@ -284,3 +284,13 @@ async def test_unload_does_not_close_the_shared_session(hass, portal, setup) -> 
     await hass.async_block_till_done()
 
     assert not session.closed
+
+
+async def test_a_meter_with_null_readings_does_not_fail_the_entry(
+    hass, portal, setup
+) -> None:
+    portal.readouts = [{"numer_fabryczny": SERIAL, "odczyty": None}]
+
+    entry = await setup(options={f"source_entity_{SERIAL}": "sensor.woda"})
+
+    assert entry.state is ConfigEntryState.LOADED

@@ -9,6 +9,8 @@ CONF_BASE_URL: Final = "base_url"
 # One source entity per meter, keyed by serial: a household with a garden
 # sub-meter has two, and they must never be fed from the same sensor.
 CONF_SOURCE_ENTITY_PREFIX: Final = "source_entity_"
+# The date of the replacement a person confirmed for a meter, keyed by serial.
+CONF_REPLACEMENT_CONFIRMED_PREFIX: Final = "replacement_confirmed_"
 
 # The portal publishes meter readings and invoices at most once a day, so there
 # is nothing to gain from polling often. A short interval would only add load to

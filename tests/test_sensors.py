@@ -102,6 +102,44 @@ def test_an_uncorrected_reading_is_not_flagged() -> None:
     assert sensor.native_value == 48
     assert sensor.extra_state_attributes["portal_reading"] == 48.0
     assert sensor.extra_state_attributes["corrected"] is False
+    assert sensor.extra_state_attributes["replaced_on"] is None
+
+
+def test_a_replaced_meter_counts_from_its_first_reading() -> None:
+    coordinator = _coordinator(
+        _meter(
+            {"do": "2026-05-04", "sl": "305"},
+            {
+                "do": "2026-06-02",
+                "sl": "312",
+                "typ": "Rozliczenie wg średniej - wymontowanie wodomierza",
+            },
+            {"do": "2026-06-03", "sl": "0"},
+            {"do": "2026-07-01", "sl": "6"},
+        )
+    )
+    sensor = IbokLastReadingSensor(coordinator, SERIAL)
+
+    assert sensor.native_value == 6
+    attrs = sensor.extra_state_attributes
+    assert attrs["replaced_on"] == "2026-06-03"
+    assert attrs["portal_reading"] == 6.0
+    assert attrs["corrected"] is False
+
+
+def test_a_correction_on_the_new_meter_keeps_its_highest() -> None:
+    coordinator = _coordinator(
+        _meter(
+            {"do": "2026-05-04", "sl": "305"},
+            {"do": "2026-06-03", "sl": "0"},
+            {"do": "2026-07-01", "sl": "7"},
+            {"do": "2026-08-01", "sl": "6,5"},
+        )
+    )
+    sensor = IbokLastReadingSensor(coordinator, SERIAL)
+
+    assert sensor.native_value == 7
+    assert sensor.extra_state_attributes["corrected"] is True
 
 
 def test_a_negative_consumption_stays() -> None:
