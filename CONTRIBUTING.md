@@ -49,7 +49,9 @@ podstawiony portal z `tests/fake_portal.py`, uruchamiany na `127.0.0.1`. Jeśli 
 opiera się na jakimś zachowaniu portalu, najpierw odtwórz je tam. Każda zmiana zachowania
 potrzebuje testu, który bez niej nie przechodzi.
 
-- Podnieś wersję w `custom_components/ibok/manifest.json`, rośnie z każdym commitem.
+- Podnieś wersję w `custom_components/ibok/manifest.json` przy każdej zmianie
+  w `custom_components/ibok/`. Zmiany samej dokumentacji, testów czy CI jej nie
+  zmieniają.
 - Teksty interfejsu są w `strings.json`, `translations/en.json` i `translations/pl.json`
   i muszą się zgadzać. Nie mogą zawierać adresów URL ani nawiasów ostrych, co sprawdza
   `tests/test_translations.py`.

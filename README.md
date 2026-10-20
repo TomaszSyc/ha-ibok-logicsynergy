@@ -2,7 +2,7 @@
 
 [![Wydanie](https://img.shields.io/github/v/release/TomaszSyc/ha-ibok-logicsynergy?display_name=tag&sort=semver)](https://github.com/TomaszSyc/ha-ibok-logicsynergy/releases)
 [![Quality](https://github.com/TomaszSyc/ha-ibok-logicsynergy/actions/workflows/quality.yml/badge.svg)](https://github.com/TomaszSyc/ha-ibok-logicsynergy/actions/workflows/quality.yml)
-[![HACS: repozytorium własne](https://img.shields.io/badge/HACS-repozytorium%20w%C5%82asne-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
+[![HACS: lista domyślna](https://img.shields.io/badge/HACS-lista%20domy%C5%9Blna-41BDF5.svg)](https://hacs.xyz/)
 
 Integracja z portalami **iBOK** firmy LogicSynergy, z których korzysta wiele polskich
 przedsiębiorstw wodociągowo-kanalizacyjnych. Pobiera saldo, faktury, stany wodomierzy
@@ -18,15 +18,16 @@ przeglądarka. Zmiana po stronie dostawcy oprogramowania może ją zepsuć.
 
 ## Instalacja
 
-[![Otwórz repozytorium w HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TomaszSyc&repository=ha-ibok-logicsynergy&category=integration)
+1. W Home Assistancie otwórz **HACS**, wyszukaj **iBOK (LogicSynergy)** i pobierz
+   integrację. Ten przycisk otwiera ją w HACS od razu:
 
-Przycisk otwiera to repozytorium bezpośrednio w HACS w Twojej instancji Home
-Assistanta. Po zainstalowaniu zrestartuj HA i dodaj integrację:
+   [![Otwórz repozytorium w HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TomaszSyc&repository=ha-ibok-logicsynergy&category=integration)
 
-[![Dodaj integrację.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ibok)
+2. Zrestartuj Home Assistanta.
+3. Dodaj integrację: Ustawienia → Urządzenia i usługi → Dodaj integrację → **iBOK**
+   albo tym przyciskiem:
 
-Ręcznie: HACS → Integracje → ⋮ → Własne repozytoria → dodaj to repo jako typ
-*Integration*, a potem Ustawienia → Urządzenia i usługi → Dodaj integrację → **iBOK**.
+   [![Dodaj integrację.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ibok)
 
 ## Konfiguracja
 
@@ -248,8 +249,8 @@ Minimalna wspierana wersja to **Home Assistant 2026.1** i CI ma osobne zadanie, 
 uruchamia te same testy właśnie na niej. Integracja ma nie zacząć po cichu wymagać
 nowszego rdzenia.
 
-Wersja w `manifest.json` rośnie z każdym commitem. Przy HACS to jedyny tani dowód, co
-komu faktycznie siedzi na dysku.
+Każda zmiana w `custom_components/ibok/` podnosi wersję w `manifest.json`. Po tym
+numerze w ustawieniach Home Assistanta widać, który kod jest zainstalowany.
 
 ### Wydania
 
