@@ -83,6 +83,13 @@ jobs:
             exit 1
           fi
 
+      # hacs.json sets zip_release, so HACS installs this tag from the ibok.zip attached to
+      # its release, and a release without it cannot be installed. The asset's download
+      # count is also the only usage figure the repository gets.
+      - name: Build the HACS package
+        shell: bash
+        run: python3 scripts/build-release-zip.py ibok.zip
+
       - name: Publish the GitHub release
         shell: bash
         env:
@@ -92,4 +99,4 @@ jobs:
         run: |
           prerelease=()
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md "${prerelease[@]}"
+          gh release create "$GITHUB_REF_NAME" ibok.zip --title "$GITHUB_REF_NAME" --notes-file notes.md "${prerelease[@]}"

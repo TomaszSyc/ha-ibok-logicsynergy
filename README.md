@@ -274,6 +274,11 @@ git tag -a v0.2.1 -F notatki.md && git push origin v0.2.1
 z tagiem i cały zestaw testów sprawdza ten sam workflow wydania, zanim cokolwiek
 opublikuje.
 
+Workflow dołącza do wydania `ibok.zip` ze skryptu `scripts/build-release-zip.py`, a
+`hacs.json` ma `zip_release`, więc HACS instaluje z tego pliku. Licznik pobrań `ibok.zip`
+to przybliżona liczba instalacji i aktualizacji przez HACS — innej informacji o tym, ile
+osób używa integracji, repozytorium nie dostaje.
+
 ## Licencja
 
 MIT — patrz [LICENSE](LICENSE).
