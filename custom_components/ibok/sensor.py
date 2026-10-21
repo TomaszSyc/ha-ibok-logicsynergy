@@ -31,6 +31,9 @@ from .replacement import current_meter
 
 _LOGGER = logging.getLogger(__name__)
 
+# The coordinator fetches for every sensor, so no entity polls on its own.
+PARALLEL_UPDATES = 0
+
 # Invoice lines are told apart by name. A sewage line can mention water, as in
 # "odprowadzanie wód opadowych", so sewage is looked for first.
 _SEWAGE_WORDS = ("ściek", "sciek", "kanaliz", "odprowadz")

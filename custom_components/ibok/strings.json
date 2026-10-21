@@ -15,6 +15,17 @@
         "data": {
           "password": "Password"
         }
+      },
+      "reconfigure": {
+        "title": "Change the portal address or password",
+        "description": "The login stays the same: it identifies the account. To use a different login, add the account as a new integration.",
+        "data": {
+          "base_url": "Portal address",
+          "password": "Password"
+        },
+        "data_description": {
+          "password": "Leave empty to keep the current password."
+        }
       }
     },
     "error": {
@@ -27,7 +38,8 @@
     },
     "abort": {
       "already_configured": "This account is already set up",
-      "reauth_successful": "Credentials updated"
+      "reauth_successful": "Credentials updated",
+      "reconfigure_successful": "Configuration updated"
     }
   },
   "options": {
@@ -220,6 +232,18 @@
     },
     "submission_status_approved": {
       "message": "approved"
+    },
+    "remove_account_device": {
+      "message": "This is the account's own device. To remove it, delete the iBOK integration entry."
+    },
+    "remove_meter_on_portal": {
+      "message": "Meter {serial} is still on the portal, so its device stays."
+    },
+    "remove_meter_unknown": {
+      "message": "The meter lists from the portal are not available right now, so it is not known whether meter {serial} is gone. Try again after the next update."
+    },
+    "remove_meter_none_listed": {
+      "message": "The portal listed no meters at all in the last update, which does not prove that meter {serial} is gone."
     }
   },
   "issues": {

@@ -44,6 +44,12 @@ z tarczy. To pole i jego przycisk są na początku ukryte, bo większość osób
 w portalu: znajdziesz je na stronie urządzenia wśród ukrytych encji i odkryjesz jednym
 przełącznikiem albo dodasz do panelu.
 
+Adres portalu albo hasło zmienisz bez usuwania integracji: Ustawienia → Urządzenia
+i usługi → iBOK → ⋮ przy koncie → **Rekonfiguracja**. Login zostaje, bo wskazuje konto;
+inne konto dodaje się jako osobną integrację. Puste pole hasła zostawia obecne. Po zmianie
+adresu nazwa integracji i jej urządzeń przechodzi na nowy adres, chyba że nadano
+integracji własną nazwę. Encje, ich historia i automatyzacje zostają.
+
 ### Kilka wodomierzy
 
 Typowy przypadek to **wodomierz ogrodowy** obok domowego, żeby nie płacić **za ścieki**
@@ -106,6 +112,14 @@ w Naprawach. Potwierdzenie przeładowuje integrację, więc odczyt wpisany ręcz
 wodomierza trzeba wpisać od nowa; zignorowanie zgłoszenia nie zdejmuje blokady. Żeby
 w międzyczasie wysłać odczyt wpisany ręcznie, usuń źródło tego wodomierza w opcjach
 integracji.
+
+### Wodomierz, którego już nie ma
+
+Urządzenie wodomierza, którego portal nie pokazuje już w żadnym module, usuniesz na jego
+stronie: ⋮ → **Usuń**. Razem z nim znikają jego zgłoszenia w Naprawach i przypisanie
+encji źródłowej. Usunięcie zostanie odmówione, gdy przy ostatnim odpytaniu nie
+odpowiedział któryś moduł portalu z wodomierzami albo portal nie pokazał żadnego
+wodomierza, bo nie wiadomo wtedy, czy wodomierz naprawdę zniknął.
 
 ### Koszt wody w panelu Energii
 

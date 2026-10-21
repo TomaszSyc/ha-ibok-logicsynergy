@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -44,6 +45,17 @@ STEP_USER = vol.Schema(
         ),
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        ),
+    }
+)
+
+STEP_RECONFIGURE = vol.Schema(
+    {
+        vol.Required(CONF_BASE_URL): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+        ),
+        vol.Optional(CONF_PASSWORD): selector.TextSelector(
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
         ),
     }
@@ -94,6 +106,16 @@ def entry_title(host: str, taken: Iterable[str]) -> str:
     while f"{host} ({number})" in taken:
         number += 1
     return f"{host} ({number})"
+
+
+def _is_default_title(title: str, host: str) -> bool:
+    """Whether the title is the one the flow itself gave: the host, maybe numbered.
+
+    Anything else was typed by the user, and a rename of the entry is theirs.
+    """
+    return (
+        re.fullmatch(rf"{re.escape(host)}( \((?:[2-9]|[1-9]\d+)\))?", title) is not None
+    )
 
 
 async def _async_validate(hass: HomeAssistant, data: dict[str, Any]) -> None:
@@ -152,6 +174,20 @@ class IbokConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=STEP_USER, errors=errors
         )
 
+    def _async_save(self, entry: ConfigEntry, **changes: Any) -> ConfigFlowResult:
+        """Save the changes and have the account set up once with them.
+
+        The update listener reloads a loaded entry, but only when something
+        changed; an entry that is not loaded has no listener, so it is reloaded
+        here. A sign-in that changes nothing still reloads, because a coordinator
+        that was refused stops polling until it is set up again.
+        """
+        if not entry.update_listeners:
+            return self.async_update_reload_and_abort(entry, **changes)
+        if all(getattr(entry, key) == value for key, value in changes.items()):
+            self.hass.config_entries.async_schedule_reload(entry.entry_id)
+        return self.async_update_and_abort(entry, **changes)
+
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         return await self.async_step_reauth_confirm()
 
@@ -170,7 +206,7 @@ class IbokConfigFlow(ConfigFlow, domain=DOMAIN):
             except IbokError:
                 errors["base"] = "cannot_connect"
             else:
-                return self.async_update_reload_and_abort(entry, data=data)
+                return self._async_save(entry, data=data)
 
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -182,6 +218,68 @@ class IbokConfigFlow(ConfigFlow, domain=DOMAIN):
                         )
                     )
                 }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the portal address or the password of the account.
+
+        The login stays as it is: it names the account, so a different login
+        is a different account and is added as a new integration.
+        """
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            try:
+                url = normalise_address(user_input[CONF_BASE_URL])
+            except _AddressError as err:
+                errors[CONF_BASE_URL] = str(err)
+            else:
+                host = URL(url).host
+                unique_id = f"{host}:{entry.data[CONF_USERNAME]}"
+                others = [
+                    e
+                    for e in self._async_current_entries()
+                    if e.entry_id != entry.entry_id
+                ]
+                if any(e.unique_id == unique_id for e in others):
+                    return self.async_abort(reason="already_configured")
+
+                data = {
+                    **entry.data,
+                    CONF_BASE_URL: url,
+                    # An empty field keeps the password the account has.
+                    CONF_PASSWORD: user_input.get(CONF_PASSWORD)
+                    or entry.data[CONF_PASSWORD],
+                }
+                try:
+                    await _async_validate(self.hass, data)
+                except IbokAuthError:
+                    errors["base"] = "invalid_auth"
+                except IbokResponseError:
+                    errors["base"] = "not_ibok"
+                except IbokConnectionError:
+                    errors["base"] = "cannot_connect"
+                except IbokError:
+                    errors["base"] = "unknown"
+                else:
+                    title = entry.title
+                    old_host = URL(entry.data[CONF_BASE_URL]).host
+                    if host != old_host and _is_default_title(title, old_host):
+                        title = entry_title(host, (e.title for e in others))
+                    return self._async_save(
+                        entry, unique_id=unique_id, title=title, data=data
+                    )
+
+        shown = (user_input or {}).get(CONF_BASE_URL) or entry.data[CONF_BASE_URL]
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_RECONFIGURE, {CONF_BASE_URL: shown}
             ),
             errors=errors,
         )

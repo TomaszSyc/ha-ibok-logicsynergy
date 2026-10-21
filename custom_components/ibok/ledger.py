@@ -305,6 +305,24 @@ class SubmissionLedger:
         self._pending.pop(meter_id, None)
         self._delete_issue(meter_id)
 
+    def forget_serial(self, serial: str) -> None:
+        """Drop everything held for a meter that has left the portal.
+
+        Besides the attempts in memory, an unknown-outcome issue is deleted by
+        the serial it carries: it persists across restarts and may outlive
+        its entry in ``_pending``, and nothing would ever resolve it once the
+        meter is gone.
+        """
+        for mid in [m for m, a in self._pending.items() if a.serial == serial]:
+            del self._pending[mid]
+            self._delete_issue(mid)
+        self._sent = [a for a in self._sent if a.serial != serial]
+        if self._hass is None:
+            return
+        for issue in _issues_of(self._hass, self._entry_id):
+            if (issue.data or {}).get("serial") == serial:
+                ir.async_delete_issue(self._hass, DOMAIN, issue.issue_id)
+
     def reconcile(self, data: Mapping[str, Any], today: date) -> None:
         """Turn a pending attempt into a sent one once the portal shows it.
 

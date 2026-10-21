@@ -17,6 +17,8 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
@@ -30,14 +32,20 @@ from .const import (
     ATTR_READING,
     ATTR_READING_DATE,
     CONF_BASE_URL,
+    CONF_REPLACEMENT_CONFIRMED_PREFIX,
+    CONF_SOURCE_ENTITY_PREFIX,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MAX_READING,
     SERVICE_SUBMIT_READING,
 )
-from .coordinator import IbokCoordinator
+from .coordinator import IbokCoordinator, meter_serial
 from .ledger import remove_issues
-from .replacement import remove_replacement_issues, sync_replacement_issues
+from .replacement import (
+    remove_replacement_issues,
+    replacement_issue_id,
+    sync_replacement_issues,
+)
 from .submit import Account, async_submit, resolve_target
 
 _LOGGER = logging.getLogger(__name__)
@@ -129,6 +137,81 @@ async def async_remove_entry(hass: HomeAssistant, entry: IbokConfigEntry) -> Non
     """Drop the removed account's Repairs issues; nothing is left to confirm."""
     remove_issues(hass, entry.entry_id)
     remove_replacement_issues(hass, entry.entry_id)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: IbokConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Let the user delete the device of a meter the portal no longer lists.
+
+    Refused while any module that names meters failed on the last poll: the
+    coordinator then keeps that module's previous data, so a meter missing
+    from it proves nothing and could be a live one. The same goes for a poll
+    in which the portal listed no meter at all: an empty answer is not an
+    error, and it is no evidence either. A meter is never removed
+    automatically -- a portal that briefly lists nothing would otherwise wipe
+    its options and open repairs; only this explicit request does.
+
+    Every refusal says why, because Home Assistant's own message for a plain
+    False is "rejected by integration". A device that is none of this
+    integration's is left to Home Assistant.
+    """
+    identifiers = {
+        ident for domain, ident in device_entry.identifiers if domain == DOMAIN
+    }
+    if entry.entry_id in identifiers:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="remove_account_device"
+        )
+    prefix = f"{entry.entry_id}_meter_"
+    serial = next(
+        (ident[len(prefix) :] for ident in identifiers if ident.startswith(prefix)),
+        None,
+    )
+    if not serial:
+        return False
+
+    placeholders = {"serial": serial}
+    coordinator = getattr(entry, "runtime_data", None)
+    keys = ("readouts", "notify", "meters")
+    if (
+        coordinator is None
+        or coordinator.data is None
+        or coordinator.failed & set(keys)
+        or any(coordinator.data.get(key) is None for key in keys)
+    ):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="remove_meter_unknown",
+            translation_placeholders=placeholders,
+        )
+    if any(
+        meter_serial(row) == serial for key in keys for row in coordinator.data[key]
+    ):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="remove_meter_on_portal",
+            translation_placeholders=placeholders,
+        )
+    if not any(coordinator.data[key] for key in keys):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="remove_meter_none_listed",
+            translation_placeholders=placeholders,
+        )
+
+    coordinator.ledger.forget_serial(serial)
+    ir.async_delete_issue(hass, DOMAIN, replacement_issue_id(entry.entry_id, serial))
+    dropped = {
+        f"{CONF_SOURCE_ENTITY_PREFIX}{serial}",
+        f"{CONF_REPLACEMENT_CONFIRMED_PREFIX}{serial}",
+    }
+    if dropped & entry.options.keys():
+        hass.config_entries.async_update_entry(
+            entry,
+            options={k: v for k, v in entry.options.items() if k not in dropped},
+        )
+    return True
 
 
 async def _async_reload(hass: HomeAssistant, entry: IbokConfigEntry) -> None:

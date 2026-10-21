@@ -1,0 +1,20 @@
+{
+  "entity": {
+    "sensor": {
+      "last_reading": { "default": "mdi:counter" },
+      "last_invoice": { "default": "mdi:receipt-text" },
+      "payment_due": { "default": "mdi:calendar-clock" },
+      "legalised_until": { "default": "mdi:calendar-check" },
+      "price": { "default": "mdi:cash" }
+    },
+    "button": {
+      "submit_reading": { "default": "mdi:send" }
+    },
+    "number": {
+      "typed_reading": { "default": "mdi:pencil" }
+    }
+  },
+  "services": {
+    "submit_reading": { "service": "mdi:send" }
+  }
+}

@@ -24,6 +24,9 @@ from .const import CONF_SOURCE_ENTITY_PREFIX, DOMAIN, MAX_READING
 from .coordinator import IbokCoordinator, fraction_digits, meter_id, meter_serial
 from .entity import IbokEntity
 
+# The typed value stays local; nothing is fetched or sent when it changes.
+PARALLEL_UPDATES = 0
+
 _KEY = "typed_reading"
 
 

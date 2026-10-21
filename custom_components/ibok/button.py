@@ -31,6 +31,10 @@ from .submit import async_submit, truncate_to_dial
 
 _LOGGER = logging.getLogger(__name__)
 
+# The ledger already refuses a second submission for a meter at once, so a
+# platform semaphore would only make the press wait.
+PARALLEL_UPDATES = 0
+
 CONFIRM_WINDOW = timedelta(seconds=60)
 # A double click is one press, not an announcement read and then confirmed.
 MIN_CONFIRM_GAP = timedelta(seconds=2)

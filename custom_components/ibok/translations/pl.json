@@ -15,6 +15,17 @@
         "data": {
           "password": "Hasło"
         }
+      },
+      "reconfigure": {
+        "title": "Zmień adres portalu lub hasło",
+        "description": "Login zostaje bez zmian, bo wskazuje konto. Żeby użyć innego loginu, dodaj konto jako nową integrację.",
+        "data": {
+          "base_url": "Adres portalu",
+          "password": "Hasło"
+        },
+        "data_description": {
+          "password": "Zostaw puste, żeby zachować obecne hasło."
+        }
       }
     },
     "error": {
@@ -27,7 +38,8 @@
     },
     "abort": {
       "already_configured": "To konto jest już skonfigurowane",
-      "reauth_successful": "Dane logowania zaktualizowane"
+      "reauth_successful": "Dane logowania zaktualizowane",
+      "reconfigure_successful": "Konfiguracja zaktualizowana"
     }
   },
   "options": {
@@ -220,6 +232,18 @@
     },
     "submission_status_approved": {
       "message": "zatwierdzony"
+    },
+    "remove_account_device": {
+      "message": "To urządzenie samego konta. Żeby je usunąć, usuń wpis integracji iBOK."
+    },
+    "remove_meter_on_portal": {
+      "message": "Wodomierz {serial} wciąż jest w portalu, więc jego urządzenie zostaje."
+    },
+    "remove_meter_unknown": {
+      "message": "Listy wodomierzy z portalu są teraz niedostępne, więc nie wiadomo, czy wodomierz {serial} zniknął. Spróbuj po najbliższym odpytaniu."
+    },
+    "remove_meter_none_listed": {
+      "message": "Przy ostatnim odpytaniu portal nie pokazał żadnego wodomierza, a to nie dowodzi, że wodomierz {serial} zniknął."
     }
   },
   "issues": {
