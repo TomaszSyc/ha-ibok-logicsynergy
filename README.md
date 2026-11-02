@@ -232,6 +232,11 @@ Pytanie wraca tylko wtedy, gdy zmieni się **liczba, którą widzisz** — bo po
 wartość już ucięta do dokładności tarczy. Przy wodomierzu odczytywanym w pełnych m³ ruch z
 48,002 na 48,004 nadal potwierdza; dopiero przeskok na 49 pyta od nowa.
 
+Drugie naciśnięcie z panelu kończy się komunikatem z wysłanym odczytem, datą i statusem
+z portalu; zastępuje on powiadomienie. Naciśnięcie z automatyzacji lub skryptu, bez
+użytkownika, zostawia powiadomienie jak dotąd. Home Assistant pokazuje ten komunikat w
+stylu błędu, bo po naciśnięciu przycisku nie ma innego sposobu, by cokolwiek wyświetlić.
+
 Potwierdzić może tylko ta sama osoba, która dostała komunikat, i nie w tej samej chwili —
 podwójne kliknięcie niczego nie wyśle. Wartość encji źródłowej jest przeliczana z jej
 jednostki na m³, a gdy encja nie odzywa się od ponad doby, przycisk odmawia: martwa

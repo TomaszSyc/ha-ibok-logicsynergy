@@ -232,6 +232,15 @@
     "reading_reported": {
       "message": "Odczyt {reading} m³ na dzień {date} dla wodomierza {serial} dotarł do portalu, status: {status}. Portal pokazuje go w zakładce „Zgłoszenie odczytu”, a nie na liście odczytów — tam pojawi się dopiero po zatwierdzeniu przez przedsiębiorstwo."
     },
+    "reading_sent_waiting": {
+      "message": "Odczyt {reading} m³ z dnia {date} dla wodomierza {serial} wysłany do iBOK — status: oczekuje na weryfikację. Na liście odczytów pojawi się po zatwierdzeniu."
+    },
+    "reading_sent_in_progress": {
+      "message": "Odczyt {reading} m³ z dnia {date} dla wodomierza {serial} wysłany do iBOK — status: w trakcie realizacji. Na liście odczytów pojawi się po zatwierdzeniu."
+    },
+    "reading_sent_approved": {
+      "message": "Odczyt {reading} m³ z dnia {date} dla wodomierza {serial} wysłany do iBOK — status: zatwierdzony."
+    },
     "submission_status_waiting": {
       "message": "oczekuje"
     },

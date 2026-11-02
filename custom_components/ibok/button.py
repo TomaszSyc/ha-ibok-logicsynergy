@@ -27,7 +27,7 @@ from .coordinator import (
 from .entity import IbokEntity
 from .ledger import reading_text
 from .replacement import pending_replacement
-from .submit import async_submit, truncate_to_dial
+from .submit import SENT_TEXTS, async_submit, truncate_to_dial
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -330,6 +330,7 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
             value = typed_reading(typed_entry, now)
             age = now - typed_entry[1]
         user_id = self._context.user_id if self._context else None
+        ui = user_id is not None
 
         decision, reading = plan_press(
             value, self.fraction_digits, self._armed, now, user_id
@@ -372,18 +373,37 @@ class IbokSubmitButton(IbokEntity, ButtonEntity):
             # The serial and the value are what the announcement showed, so
             # a replaced meter or a changed dial precision is refused rather
             # than sent under what the user confirmed.
-            await async_submit(
+            result = await async_submit(
                 self.coordinator,
                 self._meter_id,
                 reading,
                 expected_serial=self._serial,
                 announced=reading,
+                # Somebody at a dashboard gets the result in the message below;
+                # a press without a user (an automation) has no one to show it
+                # to, so it keeps the notification.
+                announce=not ui,
             )
         except HomeAssistantError as err:
             if typed and not isinstance(err.__cause__, IbokOutcomeUnknownError):
                 self.coordinator.typed_readings.setdefault(self._meter_id, typed)
                 self.coordinator.async_update_listeners()
             raise
+
+        if ui:
+            # An exception because Home Assistant shows nothing after a press
+            # that succeeds, and this is the only way to put a message in front
+            # of the user. Outside the try: the reading is sent, so the field
+            # must not come back and nothing may invite sending it again.
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key=SENT_TEXTS[result.status],
+                translation_placeholders={
+                    "reading": reading_text(result.value),
+                    "serial": self._serial,
+                    "date": result.day.isoformat(),
+                },
+            )
 
     @property
     def fraction_digits(self) -> int:

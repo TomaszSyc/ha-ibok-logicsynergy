@@ -82,6 +82,16 @@ def _translation_keys() -> tuple[set[str], list[str]]:
         if isinstance(value, ast.Constant) and isinstance(value.value, str):
             used.add(value.value)
             return
+        if (
+            isinstance(value, ast.Subscript)
+            and isinstance(value.value, ast.Name)
+            and value.value.id == "SENT_TEXTS"
+        ):
+            # One key per status; every one is checked, whichever is picked.
+            from custom_components.ibok.submit import SENT_TEXTS
+
+            used.update(SENT_TEXTS.values())
+            return
         if enclosing is not None and isinstance(value, ast.Name):
             func, positional, keyword_only = enclosing
             if value.id in positional or value.id in keyword_only:

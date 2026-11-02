@@ -7,10 +7,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fake_portal import METER
+from homeassistant.components import persistent_notification
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.ibok.api import IbokOutcomeUnknownError
@@ -86,7 +88,9 @@ async def test_a_typed_reading_goes_out_on_the_second_press(
     assert portal.submissions == []
 
     freezer.tick(timedelta(seconds=3))
-    await _press(hass, entry, hass_admin_user)
+    with pytest.raises(ServiceValidationError) as info:
+        await _press(hass, entry, hass_admin_user)
+    assert info.value.translation_key == "reading_sent_waiting"
     await hass.async_block_till_done()
 
     assert len(portal.submissions) == 1
@@ -114,7 +118,80 @@ async def _send(hass, entry, user, freezer) -> None:
     with pytest.raises(ServiceValidationError):
         await _press(hass, entry, user)
     freezer.tick(timedelta(seconds=3))
-    await _press(hass, entry, user)
+    # The result comes back as a message: Home Assistant has no other way.
+    with pytest.raises(ServiceValidationError) as info:
+        await _press(hass, entry, user)
+    assert info.value.translation_key.startswith("reading_sent_")
+
+
+def _notified(hass, entry) -> dict | None:
+    notifications = persistent_notification._async_get_or_create_notifications(hass)
+    return notifications.get(f"{DOMAIN}_reported_{entry.entry_id}_10001")
+
+
+async def test_a_reading_sent_from_the_ui_is_confirmed_with_a_toast(
+    hass, portal, setup, hass_admin_user, freezer
+) -> None:
+    entry = await setup(options={})
+    await _type(hass, entry, 48)
+    with pytest.raises(ServiceValidationError):
+        await _press(hass, entry, hass_admin_user)
+    freezer.tick(timedelta(seconds=3))
+
+    with pytest.raises(ServiceValidationError) as info:
+        await _press(hass, entry, hass_admin_user)
+
+    assert info.value.translation_key == "reading_sent_waiting"
+    assert info.value.translation_placeholders == {
+        "reading": "48",
+        "serial": SERIAL,
+        "date": dt_util.now().date().isoformat(),
+    }
+    assert len(portal.submissions) == 1
+    field = _entity_id(hass, "number", entry, "typed_reading")
+    assert hass.states.get(field).state == STATE_UNKNOWN
+    # The toast replaces the notification.
+    assert _notified(hass, entry) is None
+
+
+async def test_the_toast_names_the_status_the_portal_gave(
+    hass, portal, setup, hass_admin_user, freezer
+) -> None:
+    portal.accepted_status = 2
+    entry = await setup(options={})
+    await _type(hass, entry, 48)
+    with pytest.raises(ServiceValidationError):
+        await _press(hass, entry, hass_admin_user)
+    freezer.tick(timedelta(seconds=3))
+
+    with pytest.raises(ServiceValidationError) as info:
+        await _press(hass, entry, hass_admin_user)
+
+    assert info.value.translation_key == "reading_sent_in_progress"
+
+
+async def test_a_press_without_a_user_still_notifies(
+    hass, portal, setup, freezer
+) -> None:
+    """An automation has nobody to show a toast to."""
+    entry = await setup(options={})
+    await _type(hass, entry, 48)
+    button = _entity_id(hass, "button", entry, "submit")
+
+    async def press() -> None:
+        await hass.services.async_call(
+            "button", "press", {"entity_id": button}, blocking=True, context=Context()
+        )
+
+    with pytest.raises(ServiceValidationError) as info:
+        await press()
+    assert info.value.translation_key == "press_again_to_send"
+    freezer.tick(timedelta(seconds=3))
+    await press()
+    await hass.async_block_till_done()
+
+    assert len(portal.submissions) == 1
+    assert _notified(hass, entry) is not None
 
 
 async def test_pressing_again_after_sending_sends_nothing(
@@ -161,7 +238,9 @@ async def test_a_press_while_sending_does_not_send_again(
     with pytest.raises(ServiceValidationError) as info:
         await _press(hass, entry, hass_admin_user)
     release.set()
-    await sending
+    with pytest.raises(ServiceValidationError) as sent:
+        await sending
+    assert sent.value.translation_key == "reading_sent_waiting"
 
     assert info.value.translation_key == "type_reading_first"
     assert len(portal.submissions) == 1

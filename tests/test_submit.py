@@ -30,6 +30,7 @@ from custom_components.ibok.const import CONF_BASE_URL, DOMAIN, SERVICE_SUBMIT_R
 from custom_components.ibok.ledger import SubmissionLedger, issue_id
 from custom_components.ibok.submit import (
     Account,
+    Submitted,
     async_submit,
     resolve_target,
     validate_date,
@@ -324,7 +325,7 @@ async def test_the_service_truncates_to_the_dial(portal, coordinator) -> None:
 
     sent = await async_submit(coordinator, 10001, 48.6)
 
-    assert sent == 48.0
+    assert sent.value == 48.0
     assert portal.submissions[0]["txtReadingNr"] == "48"
     assert portal.submissions[0]["txtReadingFrac"] == "000"
 
@@ -446,6 +447,21 @@ async def test_a_reading_the_portal_holds_is_announced(
     assert "{" not in message
 
 
+async def test_the_submission_is_returned(portal, coordinator) -> None:
+    result = await async_submit(coordinator, 10001, 48)
+
+    assert result == Submitted(value=48.0, day=dt_util.now().date(), status=1)
+
+
+async def test_without_announcing_no_notification_is_made(
+    hass, portal, coordinator
+) -> None:
+    await async_submit(coordinator, 10001, 48, announce=False)
+
+    assert _notification(hass) is None
+    assert len(portal.submissions) == 1
+
+
 async def test_the_announcement_is_translated(hass, portal, coordinator) -> None:
     hass.config.language = "pl"
 
@@ -477,7 +493,7 @@ async def test_a_failed_announcement_does_not_fail_a_sent_reading(
 
     monkeypatch.setattr(persistent_notification, "async_create", _broken)
 
-    assert await async_submit(coordinator, 10001, 48) == 48
+    assert (await async_submit(coordinator, 10001, 48)).value == 48
     with pytest.raises(ServiceValidationError) as info:
         coordinator.ledger.check(
             METER, 48.0, dt_util.now().date(), dt_util.now().date()

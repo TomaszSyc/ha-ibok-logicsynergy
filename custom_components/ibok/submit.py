@@ -46,7 +46,28 @@ _STATUS_TEXTS = {
     2: "submission_status_in_progress",
     4: "submission_status_approved",
 }
-TRANSLATED_TEXTS = (_REPORTED_TITLE, _REPORTED, *_STATUS_TEXTS.values())
+# The same news as a message shown right after a press in the UI, one text per
+# status because the message carries it in its own words.
+SENT_TEXTS: dict[int, str] = {
+    1: "reading_sent_waiting",
+    2: "reading_sent_in_progress",
+    4: "reading_sent_approved",
+}
+TRANSLATED_TEXTS = (
+    _REPORTED_TITLE,
+    _REPORTED,
+    *_STATUS_TEXTS.values(),
+    *SENT_TEXTS.values(),
+)
+
+
+@dataclass(frozen=True)
+class Submitted:
+    """What reached the portal: the value as cut to the dial, its date and status."""
+
+    value: float
+    day: date
+    status: int
 
 
 @dataclass(frozen=True)
@@ -194,7 +215,8 @@ async def async_submit(
     *,
     expected_serial: str | None = None,
     announced: float | None = None,
-) -> float:
+    announce: bool = True,
+) -> Submitted:
     """Check a reading against the portal's current data, send it, return what went.
 
     The portal is asked again right before sending instead of trusting the
@@ -207,6 +229,8 @@ async def async_submit(
     hand the same internal id to a replacement meter. ``announced`` is the
     value the caller showed; if the portal's precision has changed since, the
     value that would go out is a different one, and the user has to see it.
+    ``announce=False`` leaves out the persistent notification, for a caller
+    that tells the user itself.
 
     Only one submission per meter runs at a time, and the ledger refuses one
     the portal already has, one already sent today and any while the outcome
@@ -315,19 +339,20 @@ async def async_submit(
             )
 
         ledger.record_sent(target_id, serial, value, when, today)
-        try:
-            await _announce_reported(
-                coordinator, target_id, serial, value, when, status
-            )
-        except Exception:
-            # The portal has the reading. An error raised now would read as a
-            # failed submission and invite sending it again.
-            _LOGGER.exception(
-                "Reading %s for meter %s was reported, but the notification failed",
-                reading_text(value),
-                serial,
-            )
-    return value
+        if announce:
+            try:
+                await _announce_reported(
+                    coordinator, target_id, serial, value, when, status
+                )
+            except Exception:
+                # The portal has the reading. An error raised now would read as
+                # a failed submission and invite sending it again.
+                _LOGGER.exception(
+                    "Reading %s for meter %s was reported, but the notification failed",
+                    reading_text(value),
+                    serial,
+                )
+    return Submitted(value, when, status)
 
 
 async def _rows_after_sending(

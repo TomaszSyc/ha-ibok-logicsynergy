@@ -232,6 +232,15 @@
     "reading_reported": {
       "message": "The reading {reading} m³ for {date} on meter {serial} reached the portal, status: {status}. The portal shows it in the “Zgłoszenie odczytu” tab, not in the list of readings, which only shows it once the operator approves it."
     },
+    "reading_sent_waiting": {
+      "message": "Reading {reading} m³ for {date} on meter {serial} sent to iBOK — status: waiting for review. It shows in the list of readings once approved."
+    },
+    "reading_sent_in_progress": {
+      "message": "Reading {reading} m³ for {date} on meter {serial} sent to iBOK — status: in progress. It shows in the list of readings once approved."
+    },
+    "reading_sent_approved": {
+      "message": "Reading {reading} m³ for {date} on meter {serial} sent to iBOK — status: approved."
+    },
     "submission_status_waiting": {
       "message": "waiting"
     },
