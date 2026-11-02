@@ -119,6 +119,50 @@ def fraction_digits(meter: Mapping[str, Any] | None) -> int:
         return 0
 
 
+def settlement_query(
+    accountancy: Mapping[str, Any] | None,
+) -> tuple[str, str, str] | None:
+    """The document to ask the portal about: the newest one with a payment on it.
+
+    The portal's own type for a settlement is the document's with ``Rozr`` in
+    front, and the settlement query wants the document's.
+    """
+    newest: tuple[date, Mapping[str, Any]] | None = None
+    for row in (accountancy or {}).get("pozycje") or []:
+        if not isinstance(row, dict) or (parse_number(row.get("ma")) or 0) <= 0:
+            continue
+        paid_on = parse_date(row.get("dw"))
+        if paid_on is not None and (newest is None or paid_on > newest[0]):
+            newest = (paid_on, row)
+    if newest is None:
+        return None
+    row = newest[1]
+    return (
+        str(row.get("idrec")),
+        re.sub(r"^rozr", "", str(row.get("ty") or ""), flags=re.IGNORECASE),
+        str(row.get("nr")),
+    )
+
+
+def last_payment(operations: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The latest payment among a document's operations, as amount and date.
+
+    Debit rows are charges, not payments. Only these two values are kept: the
+    rest of the answer sits beside a name and an address.
+    """
+    newest: tuple[date, float] | None = None
+    for row in operations:
+        amount = parse_number(row.get("ma"))
+        paid_on = parse_date(row.get("dataWplaty"))
+        if amount is None or amount <= 0 or paid_on is None:
+            continue
+        if newest is None or paid_on > newest[0]:
+            newest = (paid_on, amount)
+    if newest is None:
+        return None
+    return {"amount": newest[1], "date": newest[0].isoformat()}
+
+
 class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Fetches each module the integration uses, each on its own.
 
@@ -152,23 +196,46 @@ class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # One ledger per account: what has been sent today and what is
         # still waiting on an answer from the portal.
         self.ledger = SubmissionLedger(hass, entry.entry_id)
+        # Run with each successful refresh's data, e.g. to write statistics.
+        # Set before the first refresh by whoever wants it.
+        self.post_refresh: (
+            Callable[[dict[str, Any], frozenset[str]], Awaitable[None]] | None
+        ) = None
 
     async def _async_update_data(self) -> dict[str, Any]:
+        previous = self.data or {}
+        data: dict[str, Any] = {}
+        errors: dict[str, IbokError] = {}
+        # Modules that were put to the portal this refresh.
+        asked = 0
+
+        async def fetch_payment() -> dict[str, Any] | None:
+            nonlocal asked
+            # Without this refresh's accountancy there is nothing to ask about,
+            # and the last payment stands.
+            if "accountancy" in errors or data.get("accountancy") is None:
+                asked -= 1
+                return previous.get("payment")
+            query = settlement_query(data["accountancy"])
+            if query is None:
+                return None
+            answer = await self.api.async_settlement(*query)
+            return last_payment(answer["operations"])
+
         fetchers: dict[str, Callable[[], Awaitable[Any]]] = {
             "readouts": self.api.async_readouts,
             "notify": self.api.async_notify_readout,
             # Legalisation dates, and each meter's share of water and sewage.
             "meters": self.api.async_meters,
             "accountancy": self.api.async_accountancy,
+            # Asked per document, so it follows accountancy and needs its answer.
+            "payment": fetch_payment,
             "invoices": self.api.async_invoices,
         }
-        previous = self.data or {}
-        data: dict[str, Any] = {}
-        errors: dict[str, IbokError] = {}
-
         # One after another, not in parallel: the modules share one session,
         # and a login renewed halfway through must not race another request.
         for key, fetch in fetchers.items():
+            asked += 1
             try:
                 data[key] = await fetch()
             except IbokAuthError as err:
@@ -184,7 +251,7 @@ class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # rather than wait out the same failure once per module.
                 raise UpdateFailed(str(err)) from err
 
-        if len(errors) == len(fetchers):
+        if len(errors) == asked:
             # Nothing answered: the portal is down, not a module.
             raise UpdateFailed(str(next(iter(errors.values()))))
 
@@ -200,6 +267,12 @@ class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.failed = failed
         # A reading whose outcome was unknown may show up in this refresh.
         self.ledger.reconcile(data, dt_util.now().date())
+        if self.post_refresh is not None:
+            try:
+                await self.post_refresh(data, failed)
+            # A side effect, e.g. statistics, must never fail the refresh itself.
+            except Exception:
+                _LOGGER.warning("The post-refresh step failed", exc_info=True)
         return data
 
     def meter_by_id(self, wanted: int) -> dict[str, Any] | None:

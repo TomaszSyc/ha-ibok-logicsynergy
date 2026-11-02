@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 from custom_components.ibok.sensor import (
     IbokLastConsumptionSensor,
     IbokLastInvoiceSensor,
+    IbokLastPaymentSensor,
     IbokLastReadingSensor,
 )
 
@@ -20,7 +21,12 @@ SERIAL = "12345678"
 
 
 def _coordinator(
-    readouts=None, invoices=None, meters=None, notify=None
+    readouts=None,
+    invoices=None,
+    meters=None,
+    notify=None,
+    accountancy=None,
+    payment=None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         data={
@@ -28,6 +34,8 @@ def _coordinator(
             "invoices": invoices or [],
             "meters": meters or [],
             "notify": notify or [],
+            "accountancy": accountancy,
+            "payment": payment,
         },
         config_entry=SimpleNamespace(
             entry_id="e1", title="ibok.przyklad.pl", data={"base_url": "https://x"}
@@ -174,3 +182,73 @@ def test_invoices_without_a_date_fall_back_to_the_first() -> None:
     sensor = IbokLastInvoiceSensor(_coordinator(invoices=invoices))
 
     assert sensor.native_value == 100.0
+
+
+def test_last_invoice_attributes_show_payment_state() -> None:
+    invoice = {
+        "id": 501,
+        "nd": "FV/5/2026",
+        "nw": "2026-05-04",
+        "brutto": "108,00",
+        "netto": "100,00",
+        "vat": "8,00",
+    }
+    accountancy = {"pozycje": [{"id": 501, "nr": "FV/5/2026", "ro": "12,30"}]}
+    sensor = IbokLastInvoiceSensor(
+        _coordinator(invoices=[invoice], accountancy=accountancy)
+    )
+
+    attrs = sensor.extra_state_attributes
+
+    assert attrs["net"] == "100,00"
+    assert attrs["vat"] == "8,00"
+    assert attrs["issued"] == "2026-05-04"
+    assert attrs["outstanding"] == 12.30
+    assert attrs["paid"] is False
+
+
+def test_a_settled_invoice_is_paid() -> None:
+    invoice = {"id": 501, "nd": "FV/5/2026", "nw": "2026-05-04"}
+    accountancy = {"pozycje": [{"id": 501, "ro": "0,00"}]}
+    sensor = IbokLastInvoiceSensor(
+        _coordinator(invoices=[invoice], accountancy=accountancy)
+    )
+
+    assert sensor.extra_state_attributes["outstanding"] == 0.0
+    assert sensor.extra_state_attributes["paid"] is True
+
+
+def test_last_invoice_without_accountancy_has_unknown_payment_state() -> None:
+    invoice = {"id": 501, "nd": "FV/5/2026", "nw": "2026-05-04", "brutto": "108,00"}
+    sensor = IbokLastInvoiceSensor(_coordinator(invoices=[invoice]))
+    attrs = sensor.extra_state_attributes
+
+    assert attrs["outstanding"] is None
+    assert attrs["paid"] is None
+    assert attrs["issued"] == "2026-05-04"
+    assert sensor.available
+    assert sensor.native_value == 108.0
+
+
+def test_last_invoice_without_a_date_has_no_issue_date() -> None:
+    sensor = IbokLastInvoiceSensor(_coordinator(invoices=[{"brutto": "10,00"}]))
+
+    assert sensor.extra_state_attributes["issued"] is None
+
+
+def test_last_payment_sensor() -> None:
+    sensor = IbokLastPaymentSensor(
+        _coordinator(payment={"amount": 120.5, "date": "2026-05-09"})
+    )
+
+    assert sensor.native_value == 120.5
+    assert sensor.extra_state_attributes == {"date": "2026-05-09"}
+    assert sensor.native_unit_of_measurement == "PLN"
+    assert sensor.state_class is None
+
+
+def test_last_payment_sensor_without_a_payment_is_unknown() -> None:
+    sensor = IbokLastPaymentSensor(_coordinator())
+
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes == {"date": None}

@@ -28,6 +28,9 @@ MODULE_NOTIFY_READOUT: Final = "NotifyReadout_v1"
 MODULE_ACCOUNTANCY: Final = "Accountancy_v4"
 MODULE_INVOICES: Final = "Invoices_v1"
 
+# A POST, yet a read: it asks what settled one document and changes nothing.
+ACTION_SETTLEMENT: Final = "informationv4"
+
 SERVICE_SUBMIT_READING: Final = "submit_reading"
 
 # No water meter has more than eight digits before the decimal point. The
@@ -39,3 +42,7 @@ ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
 ATTR_READING: Final = "reading"
 ATTR_READING_DATE: Final = "reading_date"
 ATTR_NOTE: Final = "note"
+
+# Writes each invoice's amount and water into long-term statistics. Off unless
+# asked for: it adds history to the recorder that nothing else here needs.
+CONF_INVOICE_STATISTICS: Final = "invoice_statistics"

@@ -19,6 +19,7 @@ from custom_components.ibok.api import (
     IbokConnectionError,
     IbokOutcomeUnknownError,
     IbokResponseError,
+    _json_rows,
     split_reading,
 )
 
@@ -364,3 +365,77 @@ def test_split_reading(reading: float, expected: tuple[str, str]) -> None:
 def test_split_reading_refuses_a_negative_value() -> None:
     with pytest.raises(ValueError):
         split_reading(-1.0)
+
+
+async def test_settlement_posts_the_form_and_unwraps_json_strings(
+    portal, http_session
+) -> None:
+    portal.settlements["9001"] = {
+        "operations": [{"ma": "120,50", "dataWplaty": "2026-05-09"}],
+        "information": [{"nr": "FV/5/2026", "nazwa": "Jan Przykładowy"}],
+    }
+
+    result = await _api(portal, http_session).async_settlement("9001", "G", "FV/5/2026")
+
+    assert portal.settlement_forms == [{"idrec": "9001", "ty": "G", "nr": "FV/5/2026"}]
+    assert result["operations"][0]["ma"] == "120,50"
+    assert result["information"][0]["nr"] == "FV/5/2026"
+
+
+@pytest.mark.parametrize(
+    ("value", "rows"),
+    [
+        ('[{"ma": "1,00"}]', [{"ma": "1,00"}]),
+        ([{"ma": "1,00"}], [{"ma": "1,00"}]),
+        ("", []),
+        (None, []),
+        ('[1, {"a": 2}]', [{"a": 2}]),
+    ],
+)
+def test_a_settlement_field_is_a_json_string_or_already_a_list(value, rows) -> None:
+    assert _json_rows(value, "operations") == rows
+
+
+def test_a_settlement_field_that_is_not_json_is_a_response_error() -> None:
+    with pytest.raises(IbokResponseError):
+        _json_rows("<html>", "operations")
+
+
+async def test_settlement_of_an_unknown_document_is_empty(portal, http_session) -> None:
+    result = await _api(portal, http_session).async_settlement("1", "G", "FV/1/2026")
+
+    assert result == {"operations": [], "information": []}
+
+
+@pytest.mark.parametrize("answer", ["json", "login_page"])
+async def test_settlement_logs_in_again_when_the_session_expired(
+    portal, http_session, answer
+) -> None:
+    portal.expired_answer = answer
+    portal.settlements["9001"] = {"operations": [{"ma": "5,00"}]}
+    api = _api(portal, http_session)
+    await api.async_login()
+    portal.expire_all()
+    before = portal.logins
+
+    result = await api.async_settlement("9001", "G", "FV/5/2026")
+
+    assert portal.logins == before + 1
+    assert len(portal.settlement_forms) == 1
+    assert result["operations"] == [{"ma": "5,00"}]
+
+
+async def test_settlement_refused_on_a_fresh_session_is_a_response_error(
+    portal, http_session
+) -> None:
+    portal.expired_modules = {"Accountancy_v4"}
+
+    with pytest.raises(IbokResponseError):
+        await _api(portal, http_session).async_settlement("1", "G", "FV/1/2026")
+
+
+async def test_settlement_http_error_is_a_response_error(portal, http_session) -> None:
+    portal.broken = {"Accountancy_v4"}
+
+    with pytest.raises(IbokResponseError):
+        await _api(portal, http_session).async_settlement("1", "G", "FV/1/2026")

@@ -47,10 +47,12 @@
       "init": {
         "description": "Each `source_entity_...` field takes the entity that already holds that meter's reading; the number in the field name is the meter's serial. Leave it empty to type the reading by hand into the meter's Reading to send field instead.",
         "data": {
-          "scan_interval": "Polling interval"
+          "scan_interval": "Polling interval",
+          "invoice_statistics": "Invoice history in statistics"
         },
         "data_description": {
-          "scan_interval": "Readings and invoices change at most once a day."
+          "scan_interval": "Readings and invoices change at most once a day.",
+          "invoice_statistics": "Adds each invoice's amount and water to long-term statistics by month. Turning it off keeps the history already written."
         }
       }
     }
@@ -74,6 +76,12 @@
       },
       "price": {
         "name": "Price per m³"
+      },
+      "last_payment": {
+        "name": "Last payment"
+      },
+      "standing_charge": {
+        "name": "Standing charge"
       },
       "legalised_until": {
         "name": "Legalised until"

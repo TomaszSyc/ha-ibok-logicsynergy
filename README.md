@@ -75,7 +75,12 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
 
 - **Saldo** — z modułu rozliczeń
 - **Ostatnia faktura** — kwota brutto ostatnio wystawionej faktury, z kwotą netto i VAT
-  w atrybutach
+  w atrybutach, a do tego `issued` (data wystawienia), `outstanding` (ile zostało do
+  zapłaty) i `paid` (czy zapłacona); dwa ostatnie są puste, gdy rozrachunki nie mają tej
+  faktury
+- **Opłata stała** — brutto opłat abonamentowych za miesiąc z najnowszej faktury, która je
+  zawiera; składowe (`water`, `sewage`, `other`) w atrybutach
+- **Ostatnia wpłata** — kwota ostatniej wpłaty, z datą w atrybucie `date`
 - **Termin płatności** — do kiedy zapłacić ostatnią fakturę
 - **Wodomierz N — stan** — najwyższy odczyt od ostatniej wymiany licznika; nie spada, nawet
   gdy portal pokaże korektę niższą od poprzedniego odczytu. Ostatni odczyt portalu, to,
@@ -129,6 +134,39 @@ licznika (nakładkę radiową albo **Wodomierz N — stan**), a jako cenę wska�
 pojawi się z pierwszą fakturą według niej. Opłaty stałe, naliczane za miesiąc, do niej
 nie wchodzą. Jeśli przedsiębiorstwo nie nalicza ścieków za wodomierz ogrodowy, jego cena
 obejmuje samą wodę.
+
+## Historia faktur
+
+Opcja **Historia faktur w statystykach** (w opcjach integracji, domyślnie wyłączona)
+zapisuje w statystykach długoterminowych dwie serie, po jednym wierszu na miesiąc:
+`ibok:<host>_<skrót>_invoiced_amount` (kwota brutto faktur) i `ibok:<host>_<skrót>_invoiced_water`
+(m³ wody z faktur, bez ścieków). `<host>` to adres portalu, a `<skrót>` to krótki skrót (hash) konta, więc login nigdy
+nie pojawia się w identyfikatorze, a po ponownym dodaniu integracji historia się nie urywa.
+Zmiana adresu portalu w „Zmień konfigurację” zaczyna nową serię statystyk; stara zostaje
+w historii.
+
+Portal nie podaje okresu, za który jest faktura, więc miesiąc odtwarza się z odczytów:
+m³ wody z faktury muszą się równać zużyciu między dwoma odczytami (przy fakturze
+wielookresowej sumie kilku kolejnych). Faktura trafia w całości do miesiąca, w którym
+leży najwięcej dni tego okresu. Gdy nic się nie zgadza, na przykład przy korekcie bez
+wody, liczy się miesiąc przed datą sprzedaży. Kilka faktur z jednego miesiąca się sumuje.
+
+Wyłączenie opcji niczego nie kasuje. Faktury, które znikną z portalu, zostają
+w statystykach. Przy każdym odświeżeniu przeliczane są miesiące od najstarszej faktury,
+którą portal jeszcze pokazuje, więc późna korekta poprawia swój miesiąc. Gdy zawiodą
+moduły faktur albo odczytów, nic nie jest zapisywane.
+
+Przykład karty:
+
+```yaml
+type: statistics-graph
+title: Faktury za wodę
+period: month
+chart_type: bar
+stat_types: [change]
+entities:
+  - ibok:ibok_przyklad_pl_78b1f8fe_invoiced_amount
+```
 
 ## Podanie odczytu
 

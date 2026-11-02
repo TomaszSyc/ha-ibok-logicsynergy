@@ -17,9 +17,11 @@ SERVICES = ROOT / "services.yaml"
 EXPECTED = {
     ("sensor", "last_reading"): "mdi:counter",
     ("sensor", "last_invoice"): "mdi:receipt-text",
+    ("sensor", "last_payment"): "mdi:cash-check",
     ("sensor", "payment_due"): "mdi:calendar-clock",
     ("sensor", "legalised_until"): "mdi:calendar-check",
     ("sensor", "price"): "mdi:cash",
+    ("sensor", "standing_charge"): "mdi:calendar-month",
     ("button", "submit_reading"): "mdi:send",
     ("number", "typed_reading"): "mdi:pencil",
 }

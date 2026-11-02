@@ -6,14 +6,14 @@ from unittest.mock import patch
 
 import aiohttp
 import pytest
-from fake_portal import PASSWORD, USERNAME
+from fake_portal import METER, PASSWORD, USERNAME
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
     SOURCE_RECONFIGURE,
     SOURCE_USER,
     ConfigEntryState,
 )
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -27,7 +27,11 @@ from custom_components.ibok.config_flow import (
     merge_options,
     normalise_address,
 )
-from custom_components.ibok.const import CONF_BASE_URL, DOMAIN
+from custom_components.ibok.const import (
+    CONF_BASE_URL,
+    CONF_INVOICE_STATISTICS,
+    DOMAIN,
+)
 
 
 @pytest.mark.parametrize(
@@ -507,3 +511,23 @@ async def test_the_reconfigure_form_keeps_what_was_typed_after_an_error(
         str(key) != CONF_PASSWORD or not key.description
         for key in result["data_schema"].schema
     )
+
+
+async def test_options_flow_toggles_invoice_statistics(
+    hass, enable_custom_integrations, portal, setup
+) -> None:
+    source = f"source_entity_{METER['numer_fabryczny']}"
+    entry = await setup()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert CONF_INVOICE_STATISTICS in result["data_schema"].schema
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SCAN_INTERVAL: 6, CONF_INVOICE_STATISTICS: True, source: "sensor.woda"},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_INVOICE_STATISTICS] is True
+    assert entry.options[source] == "sensor.woda"

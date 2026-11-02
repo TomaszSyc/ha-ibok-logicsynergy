@@ -84,6 +84,22 @@ async def test_diagnostics_hide_every_value(hass, portal, setup) -> None:
             "pw": [{"poz": [{"pn": "Dostawa wody", "pj": "m3", "pc": "6,00"}]}],
         }
     ]
+    portal.accountancy = [
+        {
+            "pozycje": [
+                {
+                    "idrec": 7,
+                    "ty": "RozrG",
+                    "nr": "FV/5/2026",
+                    "dw": "2026-05-04",
+                    "ma": "120,50",
+                }
+            ]
+        }
+    ]
+    portal.settlements["7"] = {
+        "operations": [{"ma": "120,50", "dataWplaty": "2026-05-09"}]
+    }
     entry = await setup()
 
     result = await async_get_config_entry_diagnostics(hass, entry)
@@ -102,6 +118,8 @@ async def test_diagnostics_hide_every_value(hass, portal, setup) -> None:
     # What a fix depends on is still there: the fields and how they are written.
     assert result["data"]["meters"][0]["leg_do"] == "9999-99-99"
     assert result["data"]["invoices"][0]["brutto"] == "999,99"
+    assert result["data"]["payment"] == {"amount": 999.9, "date": "9999-99-99"}
+    assert "2026-05-09" not in dumped
     assert result["entry"]["options"] == {"source_entity_99999999": "xxxxxx.xxxx"}
     assert result["portal_modules"] == ["Meters_v1"]
     assert result["failed_modules"] == []

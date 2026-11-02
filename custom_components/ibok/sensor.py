@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date, datetime
 from typing import Any
 
@@ -39,6 +39,7 @@ PARALLEL_UPDATES = 0
 _SEWAGE_WORDS = ("ściek", "sciek", "kanaliz", "odprowadz")
 _WATER_WORDS = ("wod", "wód")
 _CUBIC_METRE = re.compile(r"m\s*[3³]")
+_MONTHLY = re.compile(r"mies(\.|i[aą]c)?|m-c")
 
 
 async def async_setup_entry(
@@ -49,6 +50,8 @@ async def async_setup_entry(
         [
             IbokBalanceSensor(coordinator),
             IbokLastInvoiceSensor(coordinator),
+            IbokLastPaymentSensor(coordinator),
+            IbokStandingChargeSensor(coordinator),
             IbokPaymentDueSensor(coordinator),
         ]
     )
@@ -155,58 +158,134 @@ def _vat_rate(value: Any) -> float | None:
     return parse_number(text.replace("%", ""))
 
 
-def unit_prices(invoice: Mapping[str, Any]) -> dict[str, float] | None:
-    """Gross price of a cubic metre on one invoice: water, sewage, other.
+def _lines(invoice: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
+    for block in invoice.get("pw") or []:
+        for line in (block.get("poz") or []) if isinstance(block, dict) else []:
+            if isinstance(line, dict):
+                yield line
 
-    Only lines billed per cubic metre count; a standing charge is billed per
-    month and has no place in a price per volume. A line with neither word in
-    its name is kept as "other" rather than guessed at. Lines are grouped by
-    kind and by their own name: the same name appearing twice is a correction,
-    the later line in force, while distinct names of the same kind are billed
+
+def _gross_prices(
+    invoice: Mapping[str, Any], unit: re.Pattern[str]
+) -> dict[str, float] | None:
+    """Gross price per billing unit on one invoice: water, sewage, other.
+
+    Only lines billed in ``unit`` count. A line with neither word in its name
+    is kept as "other" rather than guessed at. Lines are grouped by kind and
+    by their own name: the same name appearing twice is a correction, the
+    later line in force, while distinct names of the same kind are billed
     together and add up. A line whose VAT rate cannot be read makes the whole
     invoice's price unknown, rather than silently pricing it net.
     """
     by_line: dict[tuple[str, str], float] = {}
-    for block in invoice.get("pw") or []:
-        for line in (block.get("poz") or []) if isinstance(block, dict) else []:
-            if not isinstance(line, dict):
-                continue
-            unit = str(line.get("pj") or "").strip().lower()
-            net = parse_number(line.get("pc"))
-            if not _CUBIC_METRE.fullmatch(unit) or net is None:
-                continue
-            vat = _vat_rate(line.get("pt"))
-            if vat is None:
-                return None
-            name = str(line.get("pn") or "").strip().lower()
-            kind = _line_kind(name)
-            by_line[(kind, name)] = net * (1 + vat / 100)
+    for line in _lines(invoice):
+        line_unit = str(line.get("pj") or "").strip().lower()
+        net = parse_number(line.get("pc"))
+        if not unit.fullmatch(line_unit) or net is None:
+            continue
+        vat = _vat_rate(line.get("pt"))
+        if vat is None:
+            return None
+        name = str(line.get("pn") or "").strip().lower()
+        by_line[(_line_kind(name), name)] = net * (1 + vat / 100)
     prices: dict[str, float] = {}
     for (kind, _name), price in by_line.items():
         prices[kind] = prices.get(kind, 0.0) + price
     return prices
 
 
-def current_unit_prices(
+def unit_prices(invoice: Mapping[str, Any]) -> dict[str, float] | None:
+    """Gross price of a cubic metre on one invoice: water, sewage, other.
+
+    A standing charge is billed per month and has no place in a price per
+    volume.
+    """
+    return _gross_prices(invoice, _CUBIC_METRE)
+
+
+def standing_charges(invoice: Mapping[str, Any]) -> dict[str, float] | None:
+    """Gross monthly standing charge on one invoice: water, sewage, other.
+
+    An invoice spanning several periods repeats each line per period, so the
+    last line of a name is the tariff in force and the charges are not summed
+    over the periods.
+    """
+    return _gross_prices(invoice, _MONTHLY)
+
+
+def _current(
     invoices: Iterable[Mapping[str, Any]],
+    prices_of: Callable[[Mapping[str, Any]], dict[str, float] | None],
 ) -> tuple[dict[str, float], Mapping[str, Any]] | None:
-    """Prices from the newest invoice that bills by the cubic metre.
+    """Prices from the newest invoice that has any line ``prices_of`` reads.
 
     A correction invoice can come last and carry no such line, so the search
-    goes back until one does. The first invoice that does bill by the cubic
-    metre is the one in force: if its VAT rate cannot be read, the price is
-    unknown, and an older invoice is not taken instead -- its tariff may no
-    longer apply.
+    goes back until one does. The first invoice that does is the one in force:
+    if its VAT rate cannot be read, the price is unknown, and an older invoice
+    is not taken instead -- its tariff may no longer apply.
     """
     newest_first = sorted(
         invoices, key=lambda row: parse_date(row.get("nw")) or date.min, reverse=True
     )
     for invoice in newest_first:
-        prices = unit_prices(invoice)
+        prices = prices_of(invoice)
         if prices is None:
             return None
         if prices:
             return prices, invoice
+    return None
+
+
+def current_unit_prices(
+    invoices: Iterable[Mapping[str, Any]],
+) -> tuple[dict[str, float], Mapping[str, Any]] | None:
+    """Prices from the newest invoice that bills by the cubic metre."""
+    return _current(invoices, unit_prices)
+
+
+def current_standing_charges(
+    invoices: Iterable[Mapping[str, Any]],
+) -> tuple[dict[str, float], Mapping[str, Any]] | None:
+    """Standing charges from the newest invoice that bills any by the month."""
+    return _current(invoices, standing_charges)
+
+
+def invoiced_water(invoice: Mapping[str, Any]) -> float:
+    """Cubic metres of water billed on one invoice.
+
+    Sewage is billed on the same volume and would count it twice, so only the
+    water lines are summed. A quantity that cannot be read is skipped.
+    """
+    total = 0.0
+    for line in _lines(invoice):
+        unit = str(line.get("pj") or "").strip().lower()
+        if not _CUBIC_METRE.fullmatch(unit):
+            continue
+        if _line_kind(str(line.get("pn") or "")) != "water":
+            continue
+        total += parse_number(line.get("pi")) or 0.0
+    return total
+
+
+def matching_settlement(
+    accountancy: Mapping[str, Any] | None, invoice: Mapping[str, Any]
+) -> Mapping[str, Any] | None:
+    """The accountancy entry that settles this invoice.
+
+    Matched by the document id, and by the invoice number when the id finds
+    nothing, since the two modules do not promise to share an id.
+    """
+    entries = [
+        row for row in (accountancy or {}).get("pozycje") or [] if isinstance(row, dict)
+    ]
+    if invoice.get("id") is not None:
+        for row in entries:
+            if str(row.get("id")) == str(invoice["id"]):
+                return row
+    if invoice.get("nd") is not None:
+        for row in entries:
+            if row.get("nr") == invoice["nd"]:
+                return row
     return None
 
 
@@ -268,6 +347,29 @@ class IbokBalanceSensor(IbokEntity, SensorEntity):
         return {"debit": data.get("sumawn"), "credit": data.get("sumama")}
 
 
+class IbokLastPaymentSensor(IbokEntity, SensorEntity):
+    """Amount of the latest payment the portal has booked, and its date."""
+
+    _attr_translation_key = "last_payment"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _modules = ("payment",)
+    # No state class, for the reason the last invoice has none.
+
+    def __init__(self, coordinator: IbokCoordinator) -> None:
+        super().__init__(coordinator, "last_payment")
+        self._attr_native_unit_of_measurement = coordinator.hass.config.currency
+
+    @property
+    def native_value(self) -> float | None:
+        payment = self.coordinator.data.get("payment") or {}
+        return payment.get("amount")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        payment = self.coordinator.data.get("payment") or {}
+        return {"date": payment.get("date")}
+
+
 class IbokLastInvoiceSensor(IbokEntity, SensorEntity):
     """Gross amount of the most recent invoice."""
 
@@ -293,7 +395,55 @@ class IbokLastInvoiceSensor(IbokEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         invoice = self._latest() or {}
-        return {"net": invoice.get("netto"), "vat": invoice.get("vat")}
+        issued = parse_date(invoice.get("nw"))
+        settlement = (
+            matching_settlement(self.coordinator.data.get("accountancy"), invoice)
+            if invoice
+            else None
+        )
+        outstanding = parse_number(settlement.get("ro")) if settlement else None
+        return {
+            "net": invoice.get("netto"),
+            "vat": invoice.get("vat"),
+            "issued": issued.isoformat() if issued else None,
+            "outstanding": outstanding,
+            "paid": None if outstanding is None else outstanding == 0,
+        }
+
+
+class IbokStandingChargeSensor(IbokEntity, SensorEntity):
+    """The monthly standing charge, water and sewage together.
+
+    From the newest invoice that bills one, so a new tariff shows once the
+    first invoice under it does.
+    """
+
+    _attr_translation_key = "standing_charge"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_suggested_display_precision = 2
+    _modules = ("invoices",)
+    # No state class, for the reason the last invoice has none.
+
+    def __init__(self, coordinator: IbokCoordinator) -> None:
+        super().__init__(coordinator, "standing_charge")
+        self._attr_native_unit_of_measurement = coordinator.hass.config.currency
+
+    def _charges(self) -> dict[str, float] | None:
+        current = current_standing_charges(self.coordinator.data.get("invoices") or [])
+        return current[0] if current else None
+
+    @property
+    def native_value(self) -> float | None:
+        charges = self._charges()
+        return None if charges is None else round(sum(charges.values()), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        charges = self._charges() or {}
+        return {
+            kind: round(charges[kind], 2) if kind in charges else None
+            for kind in ("water", "sewage", "other")
+        }
 
 
 class IbokPaymentDueSensor(IbokEntity, SensorEntity):

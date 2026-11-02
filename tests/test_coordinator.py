@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from types import SimpleNamespace
 
@@ -10,13 +11,15 @@ from fake_portal import METER, PASSWORD, USERNAME
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ibok.api import IbokApi, IbokConnectionError
+from custom_components.ibok.api import IbokApi, IbokConnectionError, IbokResponseError
 from custom_components.ibok.const import CONF_BASE_URL, DOMAIN
 from custom_components.ibok.coordinator import (
     IbokCoordinator,
+    last_payment,
     meter_id,
     meter_serial,
     parse_number,
+    settlement_query,
 )
 
 INVOICE = {"nw": "2026-04-12", "brutto": "150,00"}
@@ -189,3 +192,139 @@ def test_meter_by_id_reads_the_id_as_a_number(raw) -> None:
     coordinator = SimpleNamespace(submittable_meters=[row])
 
     assert IbokCoordinator.meter_by_id(coordinator, 10001) is row
+
+
+PAID = {
+    "idrec": 7,
+    "ty": "RozrG",
+    "nr": "FV/5/2026",
+    "dw": "2026-05-04",
+    "ma": "120,50",
+}
+
+
+def test_settlement_query_takes_newest_paid_position_and_strips_rozr() -> None:
+    accountancy = {
+        "pozycje": [
+            {
+                "idrec": 3,
+                "ty": "RozrG",
+                "nr": "FV/3/2026",
+                "dw": "2026-03-04",
+                "ma": "9,00",
+            },
+            PAID,
+            {
+                "idrec": 8,
+                "ty": "RozrG",
+                "nr": "FV/6/2026",
+                "dw": "2026-06-04",
+                "ma": "0,00",
+            },
+            {
+                "idrec": 9,
+                "ty": "RozrG",
+                "nr": "FV/7/2026",
+                "dw": "nie data",
+                "ma": "5,00",
+            },
+        ]
+    }
+
+    assert settlement_query(accountancy) == ("7", "G", "FV/5/2026")
+
+
+def test_settlement_query_keeps_a_type_without_the_prefix() -> None:
+    accountancy = {"pozycje": [{**PAID, "ty": "G"}]}
+
+    assert settlement_query(accountancy) == ("7", "G", "FV/5/2026")
+
+
+@pytest.mark.parametrize(
+    "accountancy",
+    [
+        None,
+        {},
+        {"pozycje": []},
+        {"pozycje": [{**PAID, "ma": "0,00"}]},
+        {"pozycje": ["x"]},
+    ],
+)
+def test_settlement_query_none_when_nothing_paid(accountancy) -> None:
+    assert settlement_query(accountancy) is None
+
+
+def test_last_payment_picks_latest_payment_row() -> None:
+    operations = [
+        {"wn": "150,00", "dataWplaty": "2026-05-20"},
+        {"ma": "100,00", "dataWplaty": "2026-04-09"},
+        {"ma": "120,50", "dataWplaty": "2026-05-09"},
+        {"ma": "30,00", "dataWplaty": "brak"},
+        {"ma": "0,00", "dataWplaty": "2026-06-01"},
+    ]
+
+    assert last_payment(operations) == {"amount": 120.5, "date": "2026-05-09"}
+
+
+def test_last_payment_none_without_a_payment() -> None:
+    assert last_payment([{"wn": "150,00", "dataWplaty": "2026-05-20"}]) is None
+    assert last_payment([]) is None
+
+
+async def test_coordinator_stores_only_amount_and_date(portal, coordinator) -> None:
+    portal.accountancy = [{"pozycje": [PAID]}]
+    portal.settlements["7"] = {
+        "operations": [{"ma": "120,50", "dataWplaty": "2026-05-09"}],
+        "information": [{"nr": "FV/5/2026", "nn": "Jan Przykładowy"}],
+    }
+
+    await coordinator.async_refresh()
+
+    assert coordinator.data["payment"] == {"amount": 120.5, "date": "2026-05-09"}
+    assert "Przykładowy" not in json.dumps(coordinator.data, ensure_ascii=False)
+    assert portal.settlement_forms == [{"idrec": "7", "ty": "G", "nr": "FV/5/2026"}]
+
+
+async def test_payment_is_none_when_nothing_was_paid(portal, coordinator) -> None:
+    portal.accountancy = [{"pozycje": []}]
+
+    await coordinator.async_refresh()
+
+    assert coordinator.data["payment"] is None
+    assert portal.settlement_forms == []
+
+
+async def test_payment_kept_when_accountancy_failed(portal, coordinator) -> None:
+    portal.accountancy = [{"pozycje": [PAID]}]
+    portal.settlements["7"] = {
+        "operations": [{"ma": "120,50", "dataWplaty": "2026-05-09"}]
+    }
+    await coordinator.async_refresh()
+    portal.settlement_forms.clear()
+
+    portal.broken = {"Accountancy_v4"}
+    await coordinator.async_refresh()
+
+    assert coordinator.data["payment"] == {"amount": 120.5, "date": "2026-05-09"}
+    assert coordinator.failed == {"accountancy"}
+    assert portal.settlement_forms == []
+
+
+async def test_a_failing_settlement_marks_payment_failed(
+    portal, coordinator, monkeypatch
+) -> None:
+    portal.accountancy = [{"pozycje": [PAID]}]
+    portal.settlements["7"] = {
+        "operations": [{"ma": "120,50", "dataWplaty": "2026-05-09"}]
+    }
+    await coordinator.async_refresh()
+
+    async def _broken(*args):
+        raise IbokResponseError("HTTP 500")
+
+    monkeypatch.setattr(coordinator.api, "async_settlement", _broken)
+    await coordinator.async_refresh()
+
+    assert coordinator.failed == {"payment"}
+    assert coordinator.data["payment"] == {"amount": 120.5, "date": "2026-05-09"}
+    assert coordinator.last_update_success

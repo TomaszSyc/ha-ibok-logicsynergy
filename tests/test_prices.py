@@ -11,8 +11,13 @@ from custom_components.ibok.sensor import (
     IbokLegalisationSensor,
     IbokPaymentDueSensor,
     IbokPriceSensor,
+    IbokStandingChargeSensor,
+    current_standing_charges,
     current_unit_prices,
+    invoiced_water,
+    matching_settlement,
     meter_price,
+    standing_charges,
     unit_prices,
 )
 
@@ -42,6 +47,16 @@ STANDING = [
         "pt": "8%",
     },
 ]
+
+
+def _line(name: str, unit: str, qty, net_price: str, vat: str) -> dict:
+    return {
+        "pn": name,
+        "pj": unit,
+        "pi": str(qty).replace(".", ","),
+        "pc": net_price,
+        "pt": vat,
+    }
 
 
 def _invoice(issued: str, *lines: dict, due: str = "") -> dict:
@@ -297,3 +312,157 @@ def test_the_legalisation_date_is_read_per_meter() -> None:
 
     assert sensor.native_value == date(2031, 12, 31)
     assert sensor.extra_state_attributes == {"installed": "2025-06-01"}
+
+
+# --- the standing charge -------------------------------------------------------
+
+
+def test_standing_charge_sums_distinct_names_gross() -> None:
+    inv = _invoice(
+        "2026-03-02",
+        _line("Opłata abonamentowa woda", "mies", 1, "4,00", "8"),
+        _line("Opłata abonamentowa ścieki", "mies", 1, "5,00", "8"),
+        _line("Sprzedaż wody", "m3", 7, "5,00", "8"),
+    )
+
+    assert standing_charges(inv) == pytest.approx({"water": 4.32, "sewage": 5.40})
+
+
+def test_standing_charge_multi_period_invoice_is_not_tripled() -> None:
+    """The same names repeat per period; the last set is the tariff in force."""
+    name = "Opłata abonamentowa woda"
+    inv = _invoice(
+        "2026-03-02",
+        _line(name, "mies", 0.5, "3,00", "8"),
+        _line(name, "mies", 1, "3,50", "8"),
+        _line(name, "mies", 1.5, "4,00", "8"),
+    )
+
+    assert standing_charges(inv)["water"] == pytest.approx(4.00 * 1.08)
+
+
+def test_standing_charge_unreadable_vat_is_unknown() -> None:
+    inv = _invoice(
+        "2026-03-02", _line("Opłata abonamentowa woda", "mies", 1, "4,00", "??")
+    )
+
+    assert standing_charges(inv) is None
+
+
+@pytest.mark.parametrize(
+    "unit", ["mies", "mies.", "miesiąc", "miesiac", "m-c", " M-C "]
+)
+def test_the_monthly_unit_can_be_written_several_ways(unit: str) -> None:
+    inv = _invoice(
+        "2026-03-02", _line("Opłata abonamentowa woda", unit, 1, "4,00", "8")
+    )
+
+    assert standing_charges(inv) == pytest.approx({"water": 4.32})
+
+
+def test_current_standing_charges_skips_invoice_without_monthly_lines() -> None:
+    invoices = [
+        _invoice(
+            "2026-03-02", _line("Opłata abonamentowa woda", "mies", 1, "4,00", "8")
+        ),
+        _invoice("2026-04-02", _line("Korekta wody", "m3", 1, "5,00", "8")),
+    ]
+
+    charges, invoice = current_standing_charges(invoices)
+
+    assert invoice["nw"] == "2026-03-02"
+    assert charges == pytest.approx({"water": 4.32})
+
+
+def test_current_standing_charges_does_not_fall_back_past_an_unreadable_vat() -> None:
+    invoices = [
+        _invoice(
+            "2026-03-02", _line("Opłata abonamentowa woda", "mies", 1, "4,00", "8")
+        ),
+        _invoice(
+            "2026-04-02", _line("Opłata abonamentowa woda", "mies", 1, "4,00", "np.")
+        ),
+    ]
+
+    assert current_standing_charges(invoices) is None
+
+
+def test_unit_prices_ignore_monthly_lines() -> None:
+    inv = _invoice(
+        "2026-03-02",
+        _line("Opłata abonamentowa woda", "mies", 1, "4,00", "8"),
+        _line("Sprzedaż wody", "m3", 7, "5,00", "8"),
+    )
+
+    assert unit_prices(inv) == pytest.approx({"water": 5.40})
+
+
+def test_invoiced_water_sums_water_lines_only() -> None:
+    inv = _invoice(
+        "2026-03-02",
+        _line("Sprzedaż wody", "m3", 5, "5,00", "8"),
+        _line("Sprzedaż wody", "m3", 3.5, "5,00", "8"),
+        _line("Odprowadzenie ścieków", "m3", 8.5, "6,00", "8"),
+        _line("Opłata abonamentowa woda", "mies", 1, "4,00", "8"),
+    )
+
+    assert invoiced_water(inv) == pytest.approx(8.5)
+
+
+def test_invoiced_water_skips_an_unreadable_quantity_and_defaults_to_zero() -> None:
+    bad = _line("Sprzedaż wody", "m3", "?", "5,00", "8")
+
+    assert invoiced_water(_invoice("2026-03-02", bad)) == 0.0
+    assert invoiced_water(_invoice("2026-03-02")) == 0.0
+
+
+def test_matching_settlement_by_id_then_number() -> None:
+    accountancy = {
+        "pozycje": [
+            {"id": 501, "nr": "FV/5/2026", "ro": "12,30"},
+            {"id": 502, "nr": "FV/6/2026", "ro": "0,00"},
+        ]
+    }
+
+    assert (
+        matching_settlement(accountancy, {"id": "502", "nd": "FV/5/2026"})["id"] == 502
+    )
+    assert (
+        matching_settlement(accountancy, {"id": "999", "nd": "FV/5/2026"})["id"] == 501
+    )
+    assert matching_settlement(accountancy, {"nd": "FV/6/2026"})["id"] == 502
+    assert matching_settlement(accountancy, {"id": "999", "nd": "FV/9/2026"}) is None
+    assert matching_settlement(None, {"id": "501"}) is None
+
+
+def test_the_standing_charge_sensor_state_and_parts() -> None:
+    coordinator = _coordinator(
+        [
+            _invoice(
+                "2026-03-02",
+                _line("Opłata abonamentowa woda", "mies", 1, "4,00", "8"),
+                _line("Opłata abonamentowa ścieki", "mies", 1, "5,00", "8"),
+            )
+        ]
+    )
+    sensor = IbokStandingChargeSensor(coordinator)
+
+    assert sensor.native_value == pytest.approx(9.72)
+    assert sensor.native_unit_of_measurement == "PLN"
+    assert sensor.state_class is None
+    assert sensor.extra_state_attributes == {
+        "water": 4.32,
+        "sewage": 5.40,
+        "other": None,
+    }
+
+
+def test_the_standing_charge_is_unknown_without_monthly_lines() -> None:
+    sensor = IbokStandingChargeSensor(_coordinator([_invoice("2026-03-02", WATER)]))
+
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes == {
+        "water": None,
+        "sewage": None,
+        "other": None,
+    }

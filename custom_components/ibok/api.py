@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, NamedTuple
 
@@ -22,6 +22,7 @@ import aiohttp
 from yarl import URL
 
 from .const import (
+    ACTION_SETTLEMENT,
     MODULE_ACCOUNTANCY,
     MODULE_INVOICES,
     MODULE_MENU,
@@ -316,17 +317,25 @@ class IbokApi:
 
     async def async_module(self, module: str) -> Any:
         """Fetch one module's dataset, logging in again if the session expired."""
+        return await self._fetch(module, lambda: self._get_module(module))
+
+    async def _fetch(self, label: str, request: Callable[[], Awaitable[Any]]) -> Any:
+        """Run a read request and decode its JSON, logging in again once if needed.
+
+        ``request`` returns the body, or ``_SESSION_EXPIRED`` when the portal
+        answered as to a session that is not logged in.
+        """
         await self._ensure_logged_in()
 
         generation = self._generation
-        body = await self._get_module(module)
+        body = await request()
         if body is _SESSION_EXPIRED:
             await self._relogin(generation)
-            body = await self._get_module(module)
+            body = await request()
             if body is _SESSION_EXPIRED:
                 # The login itself just succeeded, so this is the portal
                 # misbehaving, not a wrong password: no re-authentication.
-                raise IbokResponseError(f"{module}: the portal refused a fresh session")
+                raise IbokResponseError(f"{label}: the portal refused a fresh session")
 
         if not body.strip():
             # Modules the operator has disabled answer HTTP 200 with an empty
@@ -336,7 +345,7 @@ class IbokApi:
         try:
             return json.loads(body)
         except ValueError as err:
-            raise IbokResponseError(f"{module}: {err}") from err
+            raise IbokResponseError(f"{label}: {err}") from err
 
     async def _get_module(self, module: str) -> Any:
         status, body, _redirected = await self._request(
@@ -363,6 +372,39 @@ class IbokApi:
         if isinstance(data, list):
             return data[0] if data else None
         return data
+
+    async def async_settlement(
+        self, idrec: str, kind: str, number: str
+    ) -> dict[str, list[dict[str, Any]]]:
+        """What settled one accountancy document: its operations and its details.
+
+        The portal sends each of the two fields as a string holding JSON, and
+        ``information`` is the document's own header, which names the person.
+        The caller must read only what it needs from it.
+        """
+        label = f"{MODULE_ACCOUNTANCY}/{ACTION_SETTLEMENT}"
+        url = f"{self._base}/?module={MODULE_ACCOUNTANCY}&action={ACTION_SETTLEMENT}"
+
+        async def request() -> Any:
+            status, body, _redirected = await self._request(
+                "POST",
+                url,
+                data=lambda: {"idrec": idrec, "ty": kind, "nr": number},
+                headers=_XHR,
+            )
+            if _session_expired(body):
+                return _SESSION_EXPIRED
+            if status >= 400:
+                raise IbokResponseError(f"{label}: HTTP {status}")
+            return body
+
+        data = await self._fetch(label, request)
+        if not isinstance(data, dict):
+            data = {}
+        return {
+            field: _json_rows(data.get(field), label)
+            for field in ("operations", "information")
+        }
 
     async def async_invoices(self) -> list[dict[str, Any]]:
         return _as_list(await self.async_module(MODULE_INVOICES))
@@ -477,6 +519,18 @@ def _not_taken(status: int, body: str, redirected: bool) -> bool:
     resending it could put it there twice.
     """
     return not redirected and status < 400 and _session_expired(body)
+
+
+def _json_rows(value: Any, label: str) -> list[dict[str, Any]]:
+    """A list of rows the portal sent either as JSON text or already decoded."""
+    if isinstance(value, str):
+        if not value.strip():
+            return []
+        try:
+            value = json.loads(value)
+        except ValueError as err:
+            raise IbokResponseError(f"{label}: {err}") from err
+    return _as_list(value)
 
 
 def _as_list(data: Any) -> list[dict[str, Any]]:

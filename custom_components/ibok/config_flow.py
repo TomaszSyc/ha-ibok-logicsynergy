@@ -30,6 +30,7 @@ from .api import (
 )
 from .const import (
     CONF_BASE_URL,
+    CONF_INVOICE_STATISTICS,
     CONF_SOURCE_ENTITY_PREFIX,
     DOMAIN,
     MIN_SCAN_INTERVAL_HOURS,
@@ -312,7 +313,7 @@ def merge_options(
 
 
 class IbokOptionsFlow(OptionsFlow):
-    """Polling interval, plus an optional source entity for each meter."""
+    """Polling interval, invoice history, plus a source entity for each meter."""
 
     _shown: list[str]
 
@@ -337,7 +338,11 @@ class IbokOptionsFlow(OptionsFlow):
                     unit_of_measurement="h",
                     mode=selector.NumberSelectorMode.BOX,
                 )
-            )
+            ),
+            vol.Optional(
+                CONF_INVOICE_STATISTICS,
+                default=options.get(CONF_INVOICE_STATISTICS, False),
+            ): selector.BooleanSelector(),
         }
 
         # One field per meter, named after its serial. A property with a garden

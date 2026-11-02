@@ -1,6 +1,9 @@
 {
   "domain": "ibok",
   "name": "iBOK (LogicSynergy)",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@TomaszSyc"
   ],

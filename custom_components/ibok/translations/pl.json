@@ -47,10 +47,12 @@
       "init": {
         "description": "Pola `source_entity_...` przyjmują encję, która trzyma stan danego wodomierza; liczba w nazwie pola to jego numer fabryczny. Bez wskazanej encji stan wpisuje się ręcznie w polu Odczyt do wysłania przy wodomierzu.",
         "data": {
-          "scan_interval": "Częstotliwość odpytywania"
+          "scan_interval": "Częstotliwość odpytywania",
+          "invoice_statistics": "Historia faktur w statystykach"
         },
         "data_description": {
-          "scan_interval": "Odczyty i faktury zmieniają się najwyżej raz dziennie."
+          "scan_interval": "Odczyty i faktury zmieniają się najwyżej raz dziennie.",
+          "invoice_statistics": "Dopisuje kwotę i wodę z każdej faktury do statystyk długoterminowych, miesiąc po miesiącu. Wyłączenie nie kasuje zapisanej już historii."
         }
       }
     }
@@ -74,6 +76,12 @@
       },
       "price": {
         "name": "Cena za m³"
+      },
+      "last_payment": {
+        "name": "Ostatnia wpłata"
+      },
+      "standing_charge": {
+        "name": "Opłata stała"
       },
       "legalised_until": {
         "name": "Legalizacja do"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from functools import partial
 
 import aiohttp
 import voluptuous as vol
@@ -32,6 +33,7 @@ from .const import (
     ATTR_READING,
     ATTR_READING_DATE,
     CONF_BASE_URL,
+    CONF_INVOICE_STATISTICS,
     CONF_REPLACEMENT_CONFIRMED_PREFIX,
     CONF_SOURCE_ENTITY_PREFIX,
     DEFAULT_SCAN_INTERVAL,
@@ -46,6 +48,7 @@ from .replacement import (
     replacement_issue_id,
     sync_replacement_issues,
 )
+from .statistics import async_import_invoice_statistics
 from .submit import Account, async_submit, resolve_target
 
 _LOGGER = logging.getLogger(__name__)
@@ -113,6 +116,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: IbokConfigEntry) -> bool
     # Before the first refresh, so a reading the portal now shows can lift a
     # block that was carried over from before the restart.
     coordinator.ledger.restore()
+    # The options are applied on reload, so this is read once per setup.
+    if entry.options.get(CONF_INVOICE_STATISTICS):
+        coordinator.post_refresh = partial(async_import_invoice_statistics, hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator

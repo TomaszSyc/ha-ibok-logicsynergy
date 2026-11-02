@@ -19,6 +19,7 @@ which ``FakePortal.expired_answer`` switches to.
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 from typing import Any
 
@@ -60,6 +61,10 @@ class FakePortal:
         self.meters: list[dict[str, Any]] = []
         self.accountancy: list[dict[str, Any]] = []
         self.invoices: list[dict[str, Any]] = []
+        # What the settlement query answers per document id, and the forms it
+        # was asked with. A portal sends each field as a string holding JSON.
+        self.settlements: dict[str, dict[str, Any]] = {}
+        self.settlement_forms: list[dict[str, str]] = []
         # Modules that answer HTTP 500, as a portal does when one of its
         # back-end queries fails while the rest keep working.
         self.broken: set[str] = set()
@@ -181,6 +186,23 @@ class FakePortal:
             if module == "Menu":
                 return web.Response(text="", content_type="text/html")
             return web.Response(text=SESSION_EXPIRED, content_type="text/html")
+
+        if (
+            module == "Accountancy_v4"
+            and request.query.get("action") == "informationv4"
+            and request.method == "POST"
+        ):
+            if module in self.broken:
+                return web.Response(status=500, text=self.broken_body)
+            form = await request.post()
+            self.settlement_forms.append({k: str(v) for k, v in form.items()})
+            found = self.settlements.get(str(form.get("idrec")), {})
+            return web.json_response(
+                {
+                    field: json.dumps(found.get(field, []))
+                    for field in ("operations", "information")
+                }
+            )
 
         if module == "NotifyReadout_v1" and request.query.get("action") == "add":
             if request.method != "POST":
