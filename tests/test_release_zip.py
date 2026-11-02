@@ -110,6 +110,22 @@ def test_the_release_workflow_builds_and_attaches_the_zip() -> None:
     )
 
     assert f"scripts/build-release-zip.py {ASSET}" in workflow
-    create = [line for line in workflow.splitlines() if "gh release create" in line]
-    assert create, "release workflow no longer creates the release"
-    assert all(ASSET in line for line in create), create
+    # release-please creates the release, as a draft; the workflow only finishes it.
+    assert "gh release create" not in workflow
+    upload = workflow.index("gh release upload")
+    upload_line = workflow[upload:].splitlines()[0]
+    # --clobber lets a re-run of the failed jobs finish a draft that already has the zip.
+    assert ASSET in upload_line and "--clobber" in upload_line, upload_line
+    assert upload < workflow.index("--draft=false"), "published before the zip"
+
+
+def test_the_release_workflow_publishes_only_a_tested_release() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "needs.release-please.outputs.release_created == 'true'" in workflow
+    assert "uses: ./.github/workflows/quality.yml" in workflow
+    # release-please marks a beta as a prerelease; publishing must keep it that way.
+    assert "--latest" not in workflow
+    assert "--prerelease=false" not in workflow

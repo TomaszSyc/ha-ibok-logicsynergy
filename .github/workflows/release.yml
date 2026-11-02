@@ -2,86 +2,61 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: read
 
+# Two pushes in quick succession must not race over the same release pull request or draft.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  check:
-    name: Tag matches manifest
+  release-please:
+    name: Release pull request
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # HACS installs from the latest release, not from the branch. If the tag and
-      # manifest.json disagree, HACS reports one version while the files on disk say
-      # another -- and there is then no way to tell what an instance is actually running.
-      - name: Compare tag with manifest version
-        shell: bash
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          manifest=$(python3 -c "import json; print(json.load(open('custom_components/ibok/manifest.json'))['version'])")
-          echo "tag=$tag manifest=$manifest"
-          if [ "$tag" != "$manifest" ]; then
-            echo "::error::tag $tag does not match manifest version $manifest"
-            exit 1
-          fi
-
-  test:
-    name: Ruff and tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # Pull requests opened with the default token start no workflows, so the release pull
+      # request would never get the checks that main requires before it can be merged.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
         with:
-          # Home Assistant 2026.9 requires >= 3.14.
-          python-version: "3.14"
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
 
-      - name: Install tooling
-        run: pip install -r requirements-dev.txt
+      # Merging the release pull request creates the release as a draft with its tag
+      # (release-please-config.json); everything below finishes it.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
-      - name: Lint
-        run: ruff check --output-format=github .
-
-      - name: Formatting
-        run: ruff format --check --diff .
-
-      - name: Tests
-        run: pytest tests/ -q
+  quality:
+    name: Quality
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: ./.github/workflows/quality.yml
 
   publish:
     name: Publish release
-    needs: [check, test]
+    needs: [release-please, quality]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # A tag push can leave the tag as lightweight in this clone even when it was pushed
-      # annotated -- fetch it explicitly so its annotation (the release notes) is actually here.
-      - name: Fetch the tag with its annotation
-        shell: bash
-        run: git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-
-      # A lightweight tag (created without -a) points straight at a commit, and
-      # %(contents) then prints that commit's message instead of nothing. So the object
-      # type is checked first: only an annotated tag carries notes written for the release.
-      - name: Read the tag's notes
-        shell: bash
-        run: |
-          kind=$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")
-          if [ "$kind" != "tag" ]; then
-            echo "::error::tag $GITHUB_REF_NAME is not annotated; recreate it with git tag -a"
-            exit 1
-          fi
-          git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents)' > notes.md
-          if ! grep -q '[^[:space:]]' notes.md; then
-            echo "::error::tag $GITHUB_REF_NAME has an empty message; recreate it with git tag -a"
-            exit 1
-          fi
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       # hacs.json sets zip_release, so HACS installs this tag from the ibok.zip attached to
       # its release, and a release without it cannot be installed. The asset's download
@@ -90,13 +65,18 @@ jobs:
         shell: bash
         run: python3 scripts/build-release-zip.py ibok.zip
 
-      - name: Publish the GitHub release
+      # Red tests leave the draft in place; re-running the failed jobs finishes it, and
+      # --clobber replaces a zip a previous attempt already attached.
+      - name: Attach the HACS package
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        # A tag with a pre-release part (v1.0.0-beta.1) is published as a pre-release, which
-        # HACS offers only to those who switched on beta versions for this repository.
-        run: |
-          prerelease=()
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" ibok.zip --title "$GITHUB_REF_NAME" --notes-file notes.md "${prerelease[@]}"
+        run: gh release upload "$TAG" ibok.zip --clobber
+
+      # release-please already marked a beta as a pre-release, which HACS offers only to
+      # those who switched on beta versions for this repository; publishing keeps that flag.
+      - name: Publish the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --draft=false

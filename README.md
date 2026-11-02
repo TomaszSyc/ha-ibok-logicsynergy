@@ -263,30 +263,37 @@ Minimalna wspierana wersja to **Home Assistant 2026.1** i CI ma osobne zadanie, 
 uruchamia te same testy właśnie na niej. Integracja ma nie zacząć po cichu wymagać
 nowszego rdzenia.
 
-Każda zmiana w `custom_components/ibok/` podnosi wersję w `manifest.json`. Po tym
-numerze w ustawieniach Home Assistanta widać, który kod jest zainstalowany.
+Wersję w `manifest.json` zmienia wyłącznie PR wydania. Po tym numerze w ustawieniach
+Home Assistanta widać, który kod jest zainstalowany.
 
 ### Wydania
 
-HACS instaluje z **ostatniego wydania**, a nie z bieżącego stanu gałęzi. Tag musi więc
-być tym samym numerem, co `version` w `manifest.json` — jeśli się rozjadą, HACS pokaże
-jedną wersję, a `manifest.json` na dysku będzie mówił co innego i nie da się ustalić,
-co instancja naprawdę uruchamia.
+HACS instaluje z **ostatniego wydania**, a nie z bieżącego stanu gałęzi, więc numer
+w `manifest.json`, tag i wydanie muszą być tym samym numerem. Pilnuje tego
+[release-please](https://github.com/googleapis/release-please): po każdym wypchnięciu na
+`main` prowadzi PR wydania, który podnosi wersję w `manifest.json` i dopisuje zmiany do
+`CHANGELOG.md`. O numerze decyduje typ w opisie commitów: `feat:` podnosi wersję
+pomniejszą, `fix:` poprawkową, `!` po typie (albo stopka `BREAKING CHANGE:`) główną.
+`docs:`, `test:`, `build:` i `ci:` wydania nie zakładają.
 
-Wydań nie tworzy się ręcznie. Po wypchnięciu taga workflow sam odpala ruff, testy i
-sprawdzenie zgodności taga z manifestem, i dopiero gdy to przejdzie, publikuje wydanie na
-GitHubie z treścią adnotacji taga jako opisem. Tag musi więc mieć adnotację (`git tag -a`,
-nie sam `git tag`). Bez niej workflow odmówi publikacji. Tag z częścią przedpremierową,
-na przykład `v1.0.0-beta.1`, trafia na GitHuba jako wydanie testowe. HACS pokazuje je tylko
-tym, którzy włączyli wersje beta dla tego repozytorium.
+Wydanie powstaje przez scalenie PR-a wydania. `main` wymaga liniowej historii, więc
+scala się go przez squash albo rebase. Scalenie zakłada tag i szkic wydania, a workflow
+uruchamia cały zestaw kontroli z `quality.yml` i dopiero gdy przejdzie, dołącza
+`ibok.zip` i publikuje szkic. Do tego czasu HACS wydania nie widzi. Gdy testy padną,
+szkic z tagiem zostaje. „Re-run failed jobs” pomaga tylko przy awarii spoza kodu
+(niestabilny test, runner, sieć), bo uruchamia testy na tym samym commicie, na który
+wskazuje tag. Błędu w kodzie nie da się już wnieść do tego wydania: poprawka `fix:`
+wychodzi jako następna wersja, a nieopublikowany szkic usuwa się ręcznie.
 
-```bash
-git tag -a v0.2.1 -F notatki.md && git push origin v0.2.1
-```
+Wersje beta zaczyna się stopką commita `Release-As: 1.1.0-beta.1`. Kolejne `feat:` i
+`fix:` dają potem same `1.1.0-beta.2`, `-beta.3` i tak dalej, a serię kończy stopka
+`Release-As: 1.1.0`. Wydanie z częścią przedpremierową trafia na GitHuba jako testowe,
+a HACS pokazuje je tylko tym, którzy włączyli wersje beta dla tego repozytorium.
 
-`test_manifest.py` pilnuje, żeby numer w manifeście był poprawnym semverem; zgodność
-z tagiem i cały zestaw testów sprawdza ten sam workflow wydania, zanim cokolwiek
-opublikuje.
+PR wydania zakłada aplikacja GitHub, a nie domyślny token workflow, bo PR otwarty tym
+tokenem nie uruchamia kontroli wymaganych na `main`. Aplikacja potrzebuje uprawnień
+Contents, Pull requests i Issues do zapisu. Jej Client ID siedzi w zmiennej repozytorium
+`RELEASE_APP_CLIENT_ID`, a klucz prywatny w sekrecie `RELEASE_APP_PRIVATE_KEY`.
 
 Workflow dołącza do wydania `ibok.zip` ze skryptu `scripts/build-release-zip.py`, a
 `hacs.json` ma `zip_release`, więc HACS instaluje z tego pliku. Licznik pobrań `ibok.zip`
