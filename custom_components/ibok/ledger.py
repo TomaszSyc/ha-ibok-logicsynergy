@@ -102,10 +102,10 @@ def submission_status(row: Mapping[str, Any], day: date, value: float) -> int | 
         return None
     if parse_number(row.get("isl")) != value:
         return None
-    return _status(row)
+    return form_status(row)
 
 
-def _status(row: Mapping[str, Any]) -> int | None:
+def form_status(row: Mapping[str, Any]) -> int | None:
     """The status of the reading form's submission, whatever reading it is."""
     try:
         return int(str(row.get("ist")).strip())
@@ -207,7 +207,7 @@ class SubmissionLedger:
                 },
             )
 
-        if _status(row) in UNDECIDED_STATUSES:
+        if form_status(row) in UNDECIDED_STATUSES:
             # Sent anyway, it would either be dropped or sit next to the
             # waiting one with nothing to say which the operator should take.
             waiting = parse_number(row.get("isl"))

@@ -95,6 +95,8 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
   się stan z tarczy; domyślnie ukryte
 - **Podaj odczyt** (przycisk) — wysyła wartość encji źródłowej albo wpisaną w polu; bez
   encji źródłowej domyślnie ukryty
+- **Wodomierz N — zgłoszenie odczytu** (zdarzenie) — strzela, gdy zgłoszenie z formularza
+  odczytu zmieni status; patrz „Zdarzenia”
 
 Każda encja pochodzi z jednego modułu portalu. Gdy któryś nie odpowie, niedostępne są
 tylko jego encje. Przycisk **wodomierza, który już go ma**, działa dalej, bo przed
@@ -261,6 +263,43 @@ Bez encji źródłowej wpisujesz stan z tarczy w polu **Odczyt do wysłania** i 
 przycisk dwa razy, jak wyżej. Wpis jest ważny przez dobę i nie przetrwa restartu, żeby
 zapomniany odczyt z zeszłego miesiąca nie poszedł jako dzisiejszy. Po wysłaniu pole się
 czyści.
+
+## Zdarzenia
+
+Encja **zgłoszenie odczytu** (jedna na wodomierz) strzela, gdy zgłoszenie, które portal
+pokazuje w formularzu odczytu, jest inne niż ostatnio zapamiętane: pojawiło się nowe albo
+zmienił się jego status. Typy zdarzeń to `waiting` (oczekuje), `in_progress` (w trakcie
+realizacji), `rejected` (odrzucone) i `approved` (zatwierdzone). W atrybutach są `reading`
+(odczyt), `reading_date` (data odczytu) i `reason` (powód podany przez przedsiębiorstwo;
+pusty, gdy go nie ma).
+
+- Odczyt wysłany z Home Assistanta daje `waiting` od razu. Zgłoszenie złożone na stronie
+  iBOK i zmiany statusu wychodzą przy najbliższym odpytaniu, czyli do 6 godzin później.
+- Przy pierwszym uruchomieniu po aktualizacji, a także dla nowego wodomierza, encja tylko
+  zapamiętuje widoczne zgłoszenie, bez zdarzenia — żeby stare zgłoszenie nie wróciło jako
+  nowe.
+- Jeśli przy wodomierzu nie było jeszcze żadnego zgłoszenia, to też zostaje zapamiętane,
+  więc pierwsze zgłoszenie strzeli.
+- Zmiana, która zaszła podczas restartu Home Assistanta, strzela raz.
+- Gdy moduł formularza nie odpowie, nic nie strzela, a encja jest niedostępna.
+
+Przykład automatyzacji, która powiadamia o odrzuconym odczycie (encja jest wymyślona):
+
+```yaml
+automation:
+  - alias: Odczyt wody odrzucony
+    triggers:
+      - trigger: state
+        entity_id: event.ibok_przyklad_pl_12345678_zgloszenie_odczytu
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.to_state.attributes.event_type == 'rejected' }}"
+    actions:
+      - action: notify.notify
+        data:
+          title: Odczyt wody odrzucony
+          message: "{{ trigger.to_state.attributes.reason or 'Bez podania powodu' }}"
+```
 
 ## Odpytywanie
 

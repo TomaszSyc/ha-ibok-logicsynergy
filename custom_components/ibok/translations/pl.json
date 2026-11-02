@@ -96,6 +96,30 @@
       "typed_reading": {
         "name": "Odczyt do wysłania"
       }
+    },
+    "event": {
+      "submission": {
+        "name": "Zgłoszenie odczytu",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "waiting": "oczekuje",
+              "in_progress": "w trakcie realizacji",
+              "rejected": "odrzucone",
+              "approved": "zatwierdzone"
+            }
+          },
+          "reading": {
+            "name": "odczyt"
+          },
+          "reading_date": {
+            "name": "data odczytu"
+          },
+          "reason": {
+            "name": "powód"
+          }
+        }
+      }
     }
   },
   "services": {

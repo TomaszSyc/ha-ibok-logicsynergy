@@ -24,6 +24,7 @@ EXPECTED = {
     ("sensor", "standing_charge"): "mdi:calendar-month",
     ("button", "submit_reading"): "mdi:send",
     ("number", "typed_reading"): "mdi:pencil",
+    ("event", "submission"): "mdi:clipboard-check-outline",
 }
 
 

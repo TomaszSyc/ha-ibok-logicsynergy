@@ -158,3 +158,18 @@ async def test_diagnostics_mask_the_serial_in_every_option_key(
         "replacement_confirmed_99999999": "9999-99-99",
     }
     assert SERIAL not in json.dumps(result["entry"]["options"])
+
+
+async def test_diagnostics_leave_out_the_operators_free_text(
+    hass, portal, setup
+) -> None:
+    portal.notify[0].update(iid="9001", ist="3", tkom="Odczyt niezgodny")
+    entry = await setup()
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["data"]["notify"]
+    assert all("tkom" not in row for row in result["data"]["notify"])
+    # Only the copy is trimmed: the entities still need the reason.
+    assert entry.runtime_data.data["notify"][0]["tkom"] == "Odczyt niezgodny"
+    assert result["data"]["notify"][0]["ist"] == "9"

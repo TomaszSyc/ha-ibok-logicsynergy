@@ -1,22 +1,47 @@
 {
   "entity": {
     "sensor": {
-      "last_reading": { "default": "mdi:counter" },
-      "last_invoice": { "default": "mdi:receipt-text" },
-      "last_payment": { "default": "mdi:cash-check" },
-      "payment_due": { "default": "mdi:calendar-clock" },
-      "legalised_until": { "default": "mdi:calendar-check" },
-      "price": { "default": "mdi:cash" },
-      "standing_charge": { "default": "mdi:calendar-month" }
+      "last_reading": {
+        "default": "mdi:counter"
+      },
+      "last_invoice": {
+        "default": "mdi:receipt-text"
+      },
+      "last_payment": {
+        "default": "mdi:cash-check"
+      },
+      "payment_due": {
+        "default": "mdi:calendar-clock"
+      },
+      "legalised_until": {
+        "default": "mdi:calendar-check"
+      },
+      "price": {
+        "default": "mdi:cash"
+      },
+      "standing_charge": {
+        "default": "mdi:calendar-month"
+      }
     },
     "button": {
-      "submit_reading": { "default": "mdi:send" }
+      "submit_reading": {
+        "default": "mdi:send"
+      }
     },
     "number": {
-      "typed_reading": { "default": "mdi:pencil" }
+      "typed_reading": {
+        "default": "mdi:pencil"
+      }
+    },
+    "event": {
+      "submission": {
+        "default": "mdi:clipboard-check-outline"
+      }
     }
   },
   "services": {
-    "submit_reading": { "service": "mdi:send" }
+    "submit_reading": {
+      "service": "mdi:send"
+    }
   }
 }

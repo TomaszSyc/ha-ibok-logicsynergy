@@ -24,6 +24,7 @@ from .api import (
 )
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .ledger import SubmissionLedger
+from .seen import SeenStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -196,6 +197,8 @@ class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # One ledger per account: what has been sent today and what is
         # still waiting on an answer from the portal.
         self.ledger = SubmissionLedger(hass, entry.entry_id)
+        # The submission each meter's event entity last announced; loaded in setup.
+        self.seen = SeenStore(hass, entry.entry_id)
         # Run with each successful refresh's data, e.g. to write statistics.
         # Set before the first refresh by whoever wants it.
         self.post_refresh: (

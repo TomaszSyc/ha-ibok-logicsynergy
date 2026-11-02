@@ -6,6 +6,9 @@ every value is masked, letters to x and digits to 9, with everything else
 kept. That keeps what a fix depends on: which fields exist, how a date or a
 decimal is written, whether a list is empty. Numbers keep their JSON type
 (an int stays an int, a float stays a float) so that too is still visible.
+
+The one exception is ``tkom`` in the reading form's rows: the operator's free
+text about a submission may name a person, and masked it tells a report nothing.
 """
 
 from __future__ import annotations
@@ -85,6 +88,21 @@ def _mask_option_key(key: str) -> str:
     return key
 
 
+def _without_comments(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A copy of the data with the operator's comment left out of the form rows."""
+    if not data or not isinstance(data.get("notify"), list):
+        return data
+    return {
+        **data,
+        "notify": [
+            {k: v for k, v in row.items() if k != "tkom"}
+            if isinstance(row, dict)
+            else row
+            for row in data["notify"]
+        ],
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: IbokConfigEntry
 ) -> dict[str, Any]:
@@ -110,5 +128,5 @@ async def async_get_config_entry_diagnostics(
         "portal_modules": modules,
         "failed_modules": sorted(coordinator.failed),
         "last_update_success": coordinator.last_update_success,
-        "data": mask(coordinator.data),
+        "data": mask(_without_comments(coordinator.data)),
     }

@@ -48,12 +48,18 @@ from .replacement import (
     replacement_issue_id,
     sync_replacement_issues,
 )
+from .seen import async_remove_seen
 from .statistics import async_import_invoice_statistics
 from .submit import Account, async_submit, resolve_target
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON, Platform.NUMBER]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.EVENT,
+]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -116,6 +122,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: IbokConfigEntry) -> bool
     # Before the first refresh, so a reading the portal now shows can lift a
     # block that was carried over from before the restart.
     coordinator.ledger.restore()
+    # Also before it: the event entities compare each refresh with what was seen
+    # before the restart.
+    await coordinator.seen.async_load()
+    entry.async_on_unload(coordinator.seen.async_flush)
     # The options are applied on reload, so this is read once per setup.
     if entry.options.get(CONF_INVOICE_STATISTICS):
         coordinator.post_refresh = partial(async_import_invoice_statistics, hass, entry)
@@ -140,9 +150,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: IbokConfigEntry) -> boo
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: IbokConfigEntry) -> None:
-    """Drop the removed account's Repairs issues; nothing is left to confirm."""
+    """Drop the removed account's Repairs issues and stored data."""
     remove_issues(hass, entry.entry_id)
     remove_replacement_issues(hass, entry.entry_id)
+    await async_remove_seen(hass, entry.entry_id)
 
 
 async def async_remove_config_entry_device(

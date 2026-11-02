@@ -96,6 +96,30 @@
       "typed_reading": {
         "name": "Reading to send"
       }
+    },
+    "event": {
+      "submission": {
+        "name": "Reading submission",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "waiting": "waiting",
+              "in_progress": "in progress",
+              "rejected": "rejected",
+              "approved": "approved"
+            }
+          },
+          "reading": {
+            "name": "reading"
+          },
+          "reading_date": {
+            "name": "reading date"
+          },
+          "reason": {
+            "name": "reason"
+          }
+        }
+      }
     }
   },
   "services": {
