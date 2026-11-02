@@ -21,9 +21,11 @@ from typing import Any, NamedTuple
 import aiohttp
 from yarl import URL
 
+from .announcements import parse_announcements
 from .const import (
     ACTION_SETTLEMENT,
     MODULE_ACCOUNTANCY,
+    MODULE_HOMEPAGE,
     MODULE_INVOICES,
     MODULE_MENU,
     MODULE_METERS,
@@ -408,6 +410,14 @@ class IbokApi:
 
     async def async_invoices(self) -> list[dict[str, Any]]:
         return _as_list(await self.async_module(MODULE_INVOICES))
+
+    async def async_announcements(self) -> list[dict[str, str]]:
+        """The operator's news and announcements."""
+        # The portal's own page asks with its language. The module name goes
+        # into the URL as it is, so the query string rides along.
+        return parse_announcements(
+            await self.async_module(f"{MODULE_HOMEPAGE}&language=pl")
+        )
 
     async def async_menu(self) -> list[str]:
         """Names of the modules this portal offers, as its own menu lists them."""

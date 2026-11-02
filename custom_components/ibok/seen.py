@@ -16,7 +16,7 @@ _SAVE_DELAY = 1
 
 
 class SeenStore:
-    """The last submission seen for each meter, by serial.
+    """The last submission seen for each meter, by serial, and the announcements.
 
     The data stays a plain dict and is saved whole, so a key this class does
     not know about survives a load and a save.
@@ -54,6 +54,24 @@ class SeenStore:
         self._data.setdefault("submissions", {})[serial] = (
             None if pair is None else [pair[0], pair[1]]
         )
+        self._dirty = True
+        self._store.async_delay_save(lambda: self._data, _SAVE_DELAY)
+
+    def announcements(self) -> set[str] | None:
+        """The keys of the announcements last seen; None if never recorded."""
+        keys = self._data.get("announcements")
+        if not isinstance(keys, list):
+            return None
+        return {str(key) for key in keys}
+
+    def set_announcements(self, keys: set[str]) -> None:
+        """Remember which announcements the portal shows now.
+
+        Written only when the set changed: most refreshes see the same ones.
+        """
+        if self.announcements() == keys:
+            return
+        self._data["announcements"] = sorted(keys)
         self._dirty = True
         self._store.async_delay_save(lambda: self._data, _SAVE_DELAY)
 

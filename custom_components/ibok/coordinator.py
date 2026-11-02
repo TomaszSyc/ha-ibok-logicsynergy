@@ -197,7 +197,8 @@ class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # One ledger per account: what has been sent today and what is
         # still waiting on an answer from the portal.
         self.ledger = SubmissionLedger(hass, entry.entry_id)
-        # The submission each meter's event entity last announced; loaded in setup.
+        # What the event entities last saw: each meter's submission and the
+        # announcements' digests. Loaded in setup.
         self.seen = SeenStore(hass, entry.entry_id)
         # Run with each successful refresh's data, e.g. to write statistics.
         # Set before the first refresh by whoever wants it.
@@ -234,6 +235,7 @@ class IbokCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Asked per document, so it follows accountancy and needs its answer.
             "payment": fetch_payment,
             "invoices": self.api.async_invoices,
+            "announcements": self.api.async_announcements,
         }
         # One after another, not in parallel: the modules share one session,
         # and a login renewed halfway through must not race another request.

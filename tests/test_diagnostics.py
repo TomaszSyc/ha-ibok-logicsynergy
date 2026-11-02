@@ -173,3 +173,18 @@ async def test_diagnostics_leave_out_the_operators_free_text(
     # Only the copy is trimmed: the entities still need the reason.
     assert entry.runtime_data.data["notify"][0]["tkom"] == "Odczyt niezgodny"
     assert result["data"]["notify"][0]["ist"] == "9"
+
+
+async def test_diagnostics_count_the_announcements_without_showing_them(
+    hass, portal, setup
+) -> None:
+    portal.announcements = [
+        {"type": 1, "title": "Przerwa w dostawie wody", "short": "Jutro", "full": "x"}
+    ]
+    entry = await setup()
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert "announcements" not in result["data"]
+    assert result["announcements"] == {"news": 0, "announcement": 1}
+    assert "Przerwa" not in json.dumps(result)

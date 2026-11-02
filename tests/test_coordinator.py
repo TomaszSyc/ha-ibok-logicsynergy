@@ -29,6 +29,7 @@ EVERY_MODULE = {
     "Meters_v1",
     "Accountancy_v4",
     "Invoices_v1",
+    "HomePage_v1",
 }
 
 
@@ -99,6 +100,7 @@ async def test_an_unreachable_portal_is_given_up_at_once(coordinator) -> None:
         "async_meters",
         "async_accountancy",
         "async_invoices",
+        "async_announcements",
     ):
         setattr(coordinator.api, name, _refused)
 
@@ -328,3 +330,34 @@ async def test_a_failing_settlement_marks_payment_failed(
     assert coordinator.failed == {"payment"}
     assert coordinator.data["payment"] == {"amount": 120.5, "date": "2026-05-09"}
     assert coordinator.last_update_success
+
+
+async def test_announcements_are_read_and_parsed(portal, coordinator) -> None:
+    portal.announcements = [{"type": 1, "title": "T", "short": "S", "full": "F"}]
+
+    await coordinator.async_refresh()
+
+    assert coordinator.data["announcements"] == [
+        {"type": "announcement", "title": "T", "short": "S", "text": "F"}
+    ]
+    assert ("GET", "/?module=HomePage_v1&language=pl") in portal.requests
+
+
+async def test_a_portal_without_announcements_gives_an_empty_list(
+    portal, coordinator
+) -> None:
+    await coordinator.async_refresh()
+
+    assert coordinator.data["announcements"] == []
+
+
+async def test_a_failing_announcements_module_leaves_the_others(
+    portal, coordinator
+) -> None:
+    portal.broken = {"HomePage_v1"}
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success
+    assert coordinator.failed == {"announcements"}
+    assert coordinator.data["notify"] == [METER]

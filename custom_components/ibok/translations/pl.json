@@ -119,6 +119,26 @@
             "name": "powód"
           }
         }
+      },
+      "announcement": {
+        "name": "Komunikat operatora",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "news": "aktualność",
+              "announcement": "ogłoszenie"
+            }
+          },
+          "title": {
+            "name": "tytuł"
+          },
+          "short": {
+            "name": "skrót"
+          },
+          "text": {
+            "name": "treść"
+          }
+        }
       }
     }
   },

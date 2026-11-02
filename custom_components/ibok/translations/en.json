@@ -119,6 +119,26 @@
             "name": "reason"
           }
         }
+      },
+      "announcement": {
+        "name": "Operator announcement",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "news": "news",
+              "announcement": "announcement"
+            }
+          },
+          "title": {
+            "name": "title"
+          },
+          "short": {
+            "name": "summary"
+          },
+          "text": {
+            "name": "text"
+          }
+        }
       }
     }
   },

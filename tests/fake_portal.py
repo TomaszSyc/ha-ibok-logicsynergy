@@ -61,6 +61,8 @@ class FakePortal:
         self.meters: list[dict[str, Any]] = []
         self.accountancy: list[dict[str, Any]] = []
         self.invoices: list[dict[str, Any]] = []
+        # The portal answers null today; a list of rows is what its template reads.
+        self.announcements: Any = None
         # What the settlement query answers per document id, and the forms it
         # was asked with. A portal sends each field as a string holding JSON.
         self.settlements: dict[str, dict[str, Any]] = {}
@@ -249,5 +251,6 @@ class FakePortal:
             "Meters_v1": self.meters,
             "Accountancy_v4": self.accountancy,
             "Invoices_v1": self.invoices,
+            "HomePage_v1": self.announcements,
         }
         return web.json_response(datasets.get(module, []))

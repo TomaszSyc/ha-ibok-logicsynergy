@@ -36,6 +36,9 @@
     "event": {
       "submission": {
         "default": "mdi:clipboard-check-outline"
+      },
+      "announcement": {
+        "default": "mdi:bullhorn-outline"
       }
     }
   },

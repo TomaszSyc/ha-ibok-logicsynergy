@@ -25,6 +25,7 @@ EXPECTED = {
     ("button", "submit_reading"): "mdi:send",
     ("number", "typed_reading"): "mdi:pencil",
     ("event", "submission"): "mdi:clipboard-check-outline",
+    ("event", "announcement"): "mdi:bullhorn-outline",
 }
 
 

@@ -27,6 +27,7 @@ MODULE_READOUTS: Final = "Readouts_v1"
 MODULE_NOTIFY_READOUT: Final = "NotifyReadout_v1"
 MODULE_ACCOUNTANCY: Final = "Accountancy_v4"
 MODULE_INVOICES: Final = "Invoices_v1"
+MODULE_HOMEPAGE: Final = "HomePage_v1"
 
 # A POST, yet a read: it asks what settled one document and changes nothing.
 ACTION_SETTLEMENT: Final = "informationv4"

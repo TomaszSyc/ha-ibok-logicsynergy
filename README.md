@@ -97,6 +97,8 @@ od wody zużytej na podlewanie. Integracja obsługuje to wprost:
   encji źródłowej domyślnie ukryty
 - **Wodomierz N — zgłoszenie odczytu** (zdarzenie) — strzela, gdy zgłoszenie z formularza
   odczytu zmieni status; patrz „Zdarzenia”
+- **Komunikat operatora** (zdarzenie, jedna na konto) — strzela, gdy przedsiębiorstwo
+  wystawi nowy komunikat; patrz „Zdarzenia”
 
 Każda encja pochodzi z jednego modułu portalu. Gdy któryś nie odpowie, niedostępne są
 tylko jego encje. Przycisk **wodomierza, który już go ma**, działa dalej, bo przed
@@ -280,8 +282,12 @@ pusty, gdy go nie ma).
   nowe.
 - Jeśli przy wodomierzu nie było jeszcze żadnego zgłoszenia, to też zostaje zapamiętane,
   więc pierwsze zgłoszenie strzeli.
-- Zmiana, która zaszła podczas restartu Home Assistanta, strzela raz.
+- Zmiana, która zaszła podczas restartu Home Assistanta, strzela raz, gdy start się
+  zakończy, więc automatyzacje ją widzą.
 - Gdy moduł formularza nie odpowie, nic nie strzela, a encja jest niedostępna.
+
+Encja wraca z niedostępności z ostatnim zdarzeniem, dlatego przykłady pomijają przejścia
+z `unavailable` i do `unavailable` — inaczej powiadomienie przyszłoby drugi raz.
 
 Przykład automatyzacji, która powiadamia o odrzuconym odczycie (encja jest wymyślona):
 
@@ -291,6 +297,8 @@ automation:
     triggers:
       - trigger: state
         entity_id: event.ibok_przyklad_pl_12345678_zgloszenie_odczytu
+        not_from: unavailable
+        not_to: unavailable
     conditions:
       - condition: template
         value_template: "{{ trigger.to_state.attributes.event_type == 'rejected' }}"
@@ -299,6 +307,35 @@ automation:
         data:
           title: Odczyt wody odrzucony
           message: "{{ trigger.to_state.attributes.reason or 'Bez podania powodu' }}"
+```
+
+Encja **komunikat operatora** (jedna na konto) strzela dla każdego nowego komunikatu
+z zakładki „Komunikaty” portalu. Typy zdarzeń to `news` (aktualność) i `announcement`
+(ogłoszenie); w atrybutach są `title` (tytuł), `short` (skrót) i `text` (treść bez HTML-a).
+Nowy znaczy taki, którego tytuł i skrót nie były widoczne przy poprzednim odpytaniu.
+
+- Przy pierwszym uruchomieniu po aktualizacji encja tylko zapamiętuje komunikaty, które
+  portal pokazuje, bez zdarzenia.
+- Kilka nowych w jednym odpytaniu daje po jednym zdarzeniu na każdy, w kolejności z portalu.
+- Komunikat zdjęty z portalu i wystawiony ponownie strzeli drugi raz.
+- Gdy moduł komunikatów nie odpowie, nic nie strzela, a encja jest niedostępna.
+- Zapamiętywany jest tylko skrót z tytułu i skrótu komunikatu, nie jego treść.
+
+Przykład automatyzacji, która wysyła nowy komunikat na telefon (encja jest wymyślona):
+
+```yaml
+automation:
+  - alias: Komunikat wodociągów
+    triggers:
+      - trigger: state
+        entity_id: event.ibok_przyklad_pl_komunikat_operatora
+        not_from: unavailable
+        not_to: unavailable
+    actions:
+      - action: notify.notify
+        data:
+          title: "{{ trigger.to_state.attributes.title }}"
+          message: "{{ trigger.to_state.attributes.text or trigger.to_state.attributes.short }}"
 ```
 
 ## Odpytywanie

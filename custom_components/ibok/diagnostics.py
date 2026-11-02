@@ -22,6 +22,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 
 from . import IbokConfigEntry
+from .announcements import ANNOUNCEMENT, NEWS
 from .api import IbokError
 from .const import CONF_REPLACEMENT_CONFIRMED_PREFIX, CONF_SOURCE_ENTITY_PREFIX
 
@@ -89,8 +90,15 @@ def _mask_option_key(key: str) -> str:
 
 
 def _without_comments(data: dict[str, Any] | None) -> dict[str, Any] | None:
-    """A copy of the data with the operator's comment left out of the form rows."""
-    if not data or not isinstance(data.get("notify"), list):
+    """A copy of the data without what the operator wrote.
+
+    That is the comment on the form's rows and the announcements, which only
+    the diagnostics' counts stand for.
+    """
+    if not data:
+        return data
+    data = {k: v for k, v in data.items() if k != "announcements"}
+    if not isinstance(data.get("notify"), list):
         return data
     return {
         **data,
@@ -100,6 +108,15 @@ def _without_comments(data: dict[str, Any] | None) -> dict[str, Any] | None:
             else row
             for row in data["notify"]
         ],
+    }
+
+
+def _announcement_counts(data: dict[str, Any] | None) -> dict[str, int]:
+    """How many of each kind there are; what they say may name anyone."""
+    items = (data or {}).get("announcements") or []
+    return {
+        kind: sum(1 for i in items if i.get("type") == kind)
+        for kind in (NEWS, ANNOUNCEMENT)
     }
 
 
@@ -128,5 +145,6 @@ async def async_get_config_entry_diagnostics(
         "portal_modules": modules,
         "failed_modules": sorted(coordinator.failed),
         "last_update_success": coordinator.last_update_success,
+        "announcements": _announcement_counts(coordinator.data),
         "data": mask(_without_comments(coordinator.data)),
     }
