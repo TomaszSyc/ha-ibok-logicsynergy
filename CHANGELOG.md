@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.0](https://github.com/TomaszSyc/ha-ibok-logicsynergy/compare/v1.0.3...v1.1.0) (2026-11-02)
+
+
+### Features
+
+* add a reading submission event entity ([19ff029](https://github.com/TomaszSyc/ha-ibok-logicsynergy/commit/19ff02963778eba5caa71adcd506778f71021a2f))
+* add an operator announcements event entity ([0b2638e](https://github.com/TomaszSyc/ha-ibok-logicsynergy/commit/0b2638e218bbcf1d39eddf8b62cbff247137e2c7))
+* confirm a sent reading with a toast ([e52b94c](https://github.com/TomaszSyc/ha-ibok-logicsynergy/commit/e52b94c5c50987ad5d7c7b174612871393128bae))
+* invoice history in statistics, standing charge and last payment sensors ([3ceec7f](https://github.com/TomaszSyc/ha-ibok-logicsynergy/commit/3ceec7fcf86ea6f613e89de8d41b07bfe59049c8))
+
 ## [1.0.3](https://github.com/TomaszSyc/ha-ibok-logicsynergy/compare/v1.0.2...v1.0.3) (2026-10-21)
 
 
