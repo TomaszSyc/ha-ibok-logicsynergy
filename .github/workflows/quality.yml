@@ -59,33 +59,34 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # gitleaks scans history, which needs more than the default shallow clone.
+          # betterleaks scans history, which needs more than the default shallow clone.
           fetch-depth: 0
 
       # GitHub's own secret scanning needs Advanced Security on private repositories, so
-      # this covers the gap. The gitleaks action is avoided on purpose: it calls the GitHub
-      # API to annotate pull requests and fails outright on Dependabot ones, where the token
-      # is restricted. All we want is the scan.
+      # this covers the gap. The binary runs directly rather than through an action: the
+      # gitleaks action called the GitHub API to annotate pull requests and failed outright
+      # on Dependabot ones, where the token is restricted. All we want is the scan.
+      # Exceptions live in .betterleaks.toml, which the scan picks up from the checkout.
       #
       # Dependabot cannot bump a version pinned in a shell variable, so this one moves by hand,
       # together with its checksum from the release's checksums file.
       - name: Scan history for secrets
         shell: bash
         env:
-          GITLEAKS_VERSION: 8.30.1
-          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          BETTERLEAKS_VERSION: 1.9.0
+          BETTERLEAKS_SHA256: f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7
         run: |
-          curl -sSfL -o gitleaks.tar.gz \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o betterleaks.tar.gz \
+            "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz"
           # The binary goes on to read the whole history, so a swapped download must not run.
-          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict -
-          tar -xzf gitleaks.tar.gz gitleaks
+          echo "${BETTERLEAKS_SHA256}  betterleaks.tar.gz" | sha256sum --check --strict -
+          tar -xzf betterleaks.tar.gz betterleaks
 
-          ./gitleaks git . --redact --no-banner --exit-code 1 2>&1 | tee scan.log
+          ./betterleaks git . --redact --no-banner --exit-code 1 2>&1 | tee scan.log
 
-          # gitleaks exits 0 when it cannot read the repository at all, so a broken scan is
-          # indistinguishable from a clean one unless we insist it saw something.
-          grep -qE "[1-9][0-9]* commits scanned" scan.log || {
-            echo "::error::gitleaks scanned no commits; treating this as a failed scan"
+          # A repository with no readable commits scans as 0 bytes and exits 0, so a broken
+          # scan is indistinguishable from a clean one unless we insist it saw something.
+          grep -qE "scanned ~[1-9][0-9]* bytes" scan.log || {
+            echo "::error::betterleaks scanned nothing; treating this as a failed scan"
             exit 1
           }

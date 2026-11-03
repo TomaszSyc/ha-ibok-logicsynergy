@@ -28,14 +28,14 @@ repos:
 
   # Same scanner and version as the CI job, just run before the commit exists instead of
   # after it is pushed.
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.1
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: v1.9.0
     hooks:
-      - id: gitleaks
+      - id: betterleaks
 
   - repo: local
     hooks:
-      # Catches values gitleaks does not know to look for -- an account or meter number
+      # Catches values betterleaks does not know to look for -- an account or meter number
       # from a real portal, say. The patterns themselves are not part of this repository;
       # see CONTRIBUTING.md.
       - id: check-denylist

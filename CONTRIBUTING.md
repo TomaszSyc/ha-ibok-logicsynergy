@@ -39,7 +39,7 @@ ruff check . && ruff format --check .
 pytest tests/ -q
 ```
 
-`pre-commit install` włącza też gitleaks i sprawdzenie prywatnej listy zakazanych
+`pre-commit install` włącza też betterleaks i sprawdzenie prywatnej listy zakazanych
 wartości ze zmiennej `IBOK_DENYLIST` albo pliku `~/.config/ibok-logicsynergy/denylist`
 — to plik spoza repozytorium, bo taka lista nie może w nim leżeć. Bez niego ten drugi
 hak nic nie blokuje.

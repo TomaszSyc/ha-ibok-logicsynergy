@@ -1,0 +1,20 @@
+title = "ha-ibok-logicsynergy"
+
+[extend]
+useDefault = true
+
+# Exceptions are scoped to rules and paths, never a global filter: a global
+# filter here would replace the default one instead of adding to it.
+
+# The config flow labels its password field, and the scanner reads the label
+# text ("Password", "Leave empty to keep the current password.") as a value.
+[[allowlists]]
+description = "Password field labels in the UI strings"
+targetRules = ["generic-password"]
+paths = ['''(^|/)custom_components/[^/]+/(strings|translations/[^/]+)\.json$''']
+
+# Tests log in to a fake portal with invented credentials.
+[[allowlists]]
+description = "Invented credentials in tests"
+targetRules = ["generic-password", "generic-credential-uri"]
+paths = ['''(^|/)tests/''']
